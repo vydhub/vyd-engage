@@ -32,6 +32,9 @@ ALTER TYPE "TaskType" ADD VALUE IF NOT EXISTS 'FOLLOW_UP';
 ALTER TYPE "TaskType" ADD VALUE IF NOT EXISTS 'PREPARACAO_DOCUMENTO';
 ALTER TYPE "TaskType" ADD VALUE IF NOT EXISTS 'VISITA_TECNICA';
 
+-- NotificationType: lembrete de lead em andamento (job de 30 dias)
+ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'LEAD_REMINDER';
+
 -- 2) Colunas novas no Lead --------------------------------------------------
 
 ALTER TABLE "Lead" ADD COLUMN IF NOT EXISTS "contactId" TEXT;

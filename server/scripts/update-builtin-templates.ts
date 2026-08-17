@@ -1,21 +1,39 @@
-// Templates semente da Pesquisa Profunda (Deep Research).
-//
-// Fonte única de verdade dos prompts-modelo. Usado pelo seed e pelo
-// auto-provision lazy (templateService.ensureBuiltins). A seção de saída pede
-// Markdown estruturado (renderizado como site pelo Engage) em vez de HTML.
-//
-// Placeholders são escritos no formato [TEXTO] — o frontend os detecta e gera
-// um campo preenchível por placeholder. Os modelos cobrem dois recortes:
-//   - "Empresa": pesquisa sobre uma empresa específica;
-//   - "Segmento": pesquisa sobre um segmento de mercado inteiro.
+/**
+ * Propagação dos templates builtin da Pesquisa Profunda (Deep Research) para
+ * tenants EXISTENTES — spec leads-oportunidade-inteligencia-mercado, req. 56.
+ *
+ * O seed/ensureBuiltins só CRIA templates que não existem: editar
+ * builtinTemplates.ts não atualiza tenants já provisionados. Este script fecha
+ * a lacuna: para cada template `isBuiltin=true` com nome 'Empresa'/'Segmento',
+ * se o promptBody ainda for a versão builtin ANTERIOR (legada, embutida abaixo),
+ * atualiza para o prompt novo; se foi editado manualmente, NÃO sobrescreve —
+ * lista no relatório final para decisão humana (caso extremo 15 da spec).
+ *
+ * Placeholders e outline NÃO são armazenados no banco: o templateService deriva
+ * ambos do promptBody on-the-fly (extractPlaceholders/extractOutline em
+ * toClientTemplate) — basta atualizar promptBody (a description acompanha).
+ *
+ *   npx tsx scripts/update-builtin-templates.ts             # dry-run (default)
+ *   ALLOW_PROD_DB=true npx tsx scripts/update-builtin-templates.ts --apply
+ */
+import prisma from '../src/config/database.js';
+import { BUILTIN_TEMPLATES } from '../src/services/deepResearch/builtinTemplates.js';
+import { assertNotProdDatabase } from '../src/config/dbSafety.js';
 
-export interface BuiltinTemplate {
-  name: string;
-  description: string;
-  promptBody: string;
-}
+const APPLY = process.argv.includes('--apply');
 
-export const EMPRESA_TEMPLATE_PROMPT = `Objetivo: gerar uma pesquisa comercial aprofundada sobre a empresa [EMPRESA] (setor: [SETOR]), para uso do time comercial de uma empresa de consultoria e serviços de engenharia, projetos e suprimentos. O leitor parte do desconhecimento total da conta e, ao terminar, precisa dominar: quais oportunidades existem, quanto valem, em que fase estão, quem decide, quando e como abordar.
+// Escrita em produção exige intenção explícita (ALLOW_PROD_DB=true); o dry-run
+// é read-only e pode rodar livre, como os scripts de diagnóstico.
+if (APPLY) assertNotProdDatabase('scripts/update-builtin-templates.ts --apply');
+
+// ---------------------------------------------------------------------------
+// Versões LEGADAS (V1) dos prompts builtin — cópia literal do que estava em
+// builtinTemplates.ts antes da expansão da spec leads-oportunidade-inteligencia-
+// mercado (reqs. 49-53). São o critério de comparação: promptBody idêntico a
+// uma destas versões = template intocado pelo tenant → seguro sobrescrever.
+// ---------------------------------------------------------------------------
+
+export const LEGACY_EMPRESA_PROMPT_V1 = `Objetivo: gerar uma pesquisa comercial aprofundada sobre a empresa [EMPRESA] (setor: [SETOR]), para uso do time comercial de uma empresa de consultoria e serviços de engenharia, projetos e suprimentos. O leitor parte do desconhecimento total da conta e, ao terminar, precisa dominar: quais oportunidades existem, quanto valem, em que fase estão, quem decide, quando e como abordar.
 
 Este relatório alimenta um CRM: cada oportunidade identificada aqui será cadastrada como negócio e trabalhada até um pedido de proposta. Escreva para esse uso — informação acionável, específica e datada. Estamos em 2026.
 
@@ -65,9 +83,7 @@ Campo sem informação pública: escreva "não encontrado" e indique onde o time
 - Encerre com um passo a passo objetivo: o que fazer HOJE para estar apto a receber um convite de proposta desta empresa.
 
 ### Capítulo 7 — Mapa de Stakeholders (situação em 2026)
-Este capítulo é o local CANÔNICO do organograma e do diretório de decisores da conta — a pesquisa de Segmento não traz diretório de decisores; ele vive aqui, completo.
 - Lideranças relevantes para as oportunidades, nas áreas de Engenharia, Projetos, Suprimentos e Diretoria Executiva: nome, cargo, responsabilidades e contato institucional público;
-- Apresente o diretório em tabela: Nome | Cargo | Área (Engenharia/Projetos/Suprimentos/Diretoria) | Responsabilidades | Contato institucional público | Classificação (decide/influencia/veta);
 - Classifique cada um: decide | influencia | veta — amarrando às oportunidades do Capítulo 2 sempre que possível;
 - Sinais públicos de cada stakeholder (entrevistas, palestras, publicações, movimentações de carreira) que sirvam de gancho de abordagem;
 - Porta de entrada recomendada na conta e erros a evitar.
@@ -98,7 +114,7 @@ Este capítulo é o local CANÔNICO do organograma e do diretório de decisores 
 - Inclua uma seção final com o título "Fontes e Referências" (nível 2) listando todas as fontes numeradas utilizadas.
 - Linguagem profissional e objetiva, adequada para apresentação à área comercial.`;
 
-export const SEGMENTO_TEMPLATE_PROMPT = `Objetivo: gerar uma pesquisa aprofundada sobre o segmento de [SEGMENTO] em [REGIÃO], com foco em mapear oportunidades de negócio em engenharia, projetos e suprimentos — identificando commodities, empresas-alvo, ativos, investimentos, janelas de contratação e estratégia comercial. O relatório alimenta o CRM de uma consultoria de engenharia (TENAX): escreva informação acionável, específica e datada. Estamos em 2026.
+export const LEGACY_SEGMENTO_PROMPT_V1 = `Objetivo: gerar uma pesquisa aprofundada sobre o segmento de [SEGMENTO] em [REGIÃO], com foco em mapear oportunidades de negócio em engenharia, projetos e suprimentos — identificando empresas-alvo, investimentos, decisores e estratégia comercial.
 
 ## Estrutura da pesquisa solicitada
 
@@ -107,64 +123,34 @@ export const SEGMENTO_TEMPLATE_PROMPT = `Objetivo: gerar uma pesquisa aprofundad
 - Leitura executiva: atratividade do segmento, maturidade do pipeline e principais oportunidades;
 - Ranking-resumo das melhores oportunidades comerciais (empresa/projeto, foco, tese resumida, janela principal).
 
-### Capítulo 2 — Visão Geral do Segmento e Commodities
-- Tendências de DEMANDA das principais commodities do segmento e tendências de PREÇOS, com **histórico dos últimos 12 meses** em tabela mês a mês: Mês | Preço | Unidade | Variação | Fonte — fonte e unidade explícitas em cada linha;
-- **Produção por país**: ranking mundial dos maiores produtores de cada commodity (Posição | País | Volume | Unidade | Ano-base | Fonte);
-- **Produção por empresa no Brasil**: ranking das empresas produtoras (Empresa | Volume | Unidade | Participação | Ano-base | Fonte);
-- **Fatores de demanda** desdobrados em três categorias — estruturais (transição energética, urbanização, substituição de materiais), cíclicos (estoques, câmbio, ciclo econômico global) e regulatórios (políticas públicas, tarifas, licenciamento) — quantificados sempre que houver base pública;
-- Posição de [REGIÃO] na cadeia de valor / oferta e arcabouço regulatório relevante.
+### Capítulo 2 — Panorama do segmento
+- Relevância estratégica e principais drivers de demanda;
+- Posição de [REGIÃO] na cadeia de valor / oferta;
+- Principais polos, regiões e concentração geográfica;
+- Ambiente de demanda, preços e arcabouço regulatório.
 
-### Capítulo 3 — Mapa de Empresas e Ativos no Território
-- Tabela georreferenciada dos ativos do segmento: Empresa | Ativo/Projeto | Município/UF | Coordenadas (quando públicas) | Estágio (Greenfield ou Brownfield) | Status operacional;
-- Classifique cada ativo como **Greenfield** (implantação nova) ou **Brownfield** (expansão/modernização de ativo existente);
-- Cite as fontes de referência setoriais utilizadas (associações, agências reguladoras, anuários do setor);
-- Quando o segmento for mineração, referencie o Mapa da Mineração Brasileira do IBRAM incluindo no relatório o link [Mapa da Mineração Brasileira — IBRAM](https://www.google.com/maps/d/u/0/viewer?mid=1cYf5kH02tHYtKnX9ZvTomkRMO0FhkBw&femb=1) — SEMPRE como link markdown, nunca como iframe ou embed.
-
-### Capítulo 4 — Censo de Empresas do Segmento
-- Lista de TODAS as empresas do segmento localizadas no Brasil ou com projetos a implantar no Brasil — o objetivo é EXAUSTIVIDADE: inclua também players pequenos e juniores, não apenas os líderes;
-- Declare explicitamente o critério de inclusão adotado e, se houver corte, declare o critério de corte;
-- Tabela-mestra: Empresa | Controlador/origem do capital | Estágio | Ativos/projetos | Localização | Capacidade atual/planejada | Relevância comercial;
+### Capítulo 3 — Players, ativos e ranking preliminar
+- Tabela-mestra de empresas do segmento (controlador, origem do capital, estágio, ativos/projetos, localização, capacidade atual/planejada, relevância comercial);
 - Ranking preliminar por relevância como potencial cliente de engenharia, cruzando: tamanho do CAPEX, maturidade/janela de entrada, abertura a terceiros e concorrência já instalada.
 
-### Capítulo 5 — Retrospectiva de Projetos Implantados
-- Retrospectiva dos últimos projetos implantados no segmento, em tabela: Empresa dona | Projeto | Projetista | Gerenciadora/Fiscalizadora | Tipo de contratação (Spot, EPCM, EPC ou outros) | Ano | CAPEX | Fonte;
-- Quando projetista ou gerenciadora não forem públicos, escreva "sem dados públicos suficientes" na célula — não deixe em branco nem invente;
-- Leitura do padrão: quais projetistas e gerenciadoras dominam o segmento e que modelos de contratação prevalecem.
-
-### Capítulo 6 — Investimentos de Capital e Correntes (a partir de 2026)
-- Tabela consolidada de investimentos de CAPITAL (empresa/projeto, tipo, CAPEX total, datas-chave, fase intensiva em engenharia, distribuição anual 2026+);
-- Investimentos CORRENTES relevantes para engenharia (sustaining CAPEX e OPEX de manutenção/melhoria contínua) por empresa, quando públicos;
-- Para cada investimento, lista e ORIGEM dos recursos: fundos investidores, private equity, BNDES/bancos de fomento, contratos de offtake, mercado de capitais (follow-on, debêntures) ou geração própria de caixa;
-- Visão agregada do CAPEX do segmento e pico de desembolso esperado.
+### Capítulo 4 — Investimentos do segmento e valor endereçável (a partir de 2026)
+- Tabela consolidada de investimentos (empresa/projeto, tipo, CAPEX total, datas-chave, fase intensiva em engenharia, distribuição anual 2026+);
+- Visão agregada do CAPEX do segmento e pico de desembolso esperado;
+- Distribuição estimada por fase de projeto e SAM (mercado endereçável) para estudos, engenharia, detalhamento, EPCM/comissionamento e compras/equipamentos.
 
 Considerar apenas investimentos que passam por 2026 ou se iniciam em 2026 ou posterior; sempre informar datas/janelas; marcar inferências como **estimativa**.
 
-### Capítulo 7 — Matriz de Screening do Segmento
-- Distribuição do valor endereçável (SAM) por fase de projeto, usando as FAIXAS-TETO de referência abaixo (percentual do CAPEX):
-  - Estudos + engenharia conceitual/básica: 1,5–4% do CAPEX;
-  - Detalhamento: 2–5% do CAPEX;
-  - EPCM/gerenciamento: 6–12% do CAPEX;
-  - Comissionamento: 1–3% do CAPEX;
-  - Compras/equipamentos: 40–60% do CAPEX.
-- As faixas acima são TETO: só ultrapasse se houver evidência pública em contrário, citada no texto;
-- Explicite o DENOMINADOR de cada percentual — CAPEX total do projeto vs. escopo endereçável por serviços de engenharia — e nunca misture os dois sem avisar;
-- Todo valor derivado deve vir marcado como **estimativa**, com a base de cálculo explícita (percentual aplicado × CAPEX de referência).
-
-### Capítulo 8 — Maturidade, modelos de contratação e concorrência
+### Capítulo 5 — Maturidade, modelos de contratação e concorrência
 - Mapa de maturidade dos projetos e janela de entrada para serviços;
 - Timeline do segmento (marcos e oportunidades comerciais associadas);
 - Modelos de contratação predominantes (EPC vs EPCM, terceirização, LTAs guarda-chuva);
 - Concorrência instalada e incumbentes com evidência pública.
 
-### Capítulo 9 — Conteúdo local e política regional
-- Tendência de conteúdo local e política regional do segmento: exigências, incentivos, preferência por fornecedores locais — e como usá-los a favor na disputa comercial.
+### Capítulo 6 — Conteúdo local e diretório de decisores
+- Tendência de conteúdo local e política regional do segmento;
+- Diretório de decisores por empresa-alvo, nas áreas de Engenharia, Projetos, Suprimentos e Diretoria Executiva, com nome, cargo, responsabilidades e contato institucional público, quando disponível.
 
-### Capítulo 10 — Posicionamento e Proposta de Valor
-- Particularidades e expertises necessárias para atuação no segmento e **em cada commodity** (normas, tecnologias de processo, licenciamento, desafios típicos de engenharia);
-- Resumo básico do processo produtivo / beneficiamento de cada commodity (etapas principais, da matéria-prima ao produto vendável), descrito de forma a permitir relacionar com as experiências da TENAX em engenharia, projetos e suprimentos;
-- Onde uma consultoria de engenharia gera mais valor em cada etapa do processo.
-
-### Capítulo 11 — Pipeline futuro, estratégia comercial e limitações
+### Capítulo 7 — Pipeline futuro, estratégia comercial e limitações
 - Pipeline futuro que pode virar empreendimento relevante após 2026;
 - Estratégia comercial recomendada por tipo de alvo (developers em pré-FID, brownfields/expansões, players verticalizados);
 - Proposta de abordagem inicial por empresa-alvo (primeira oferta recomendada e motivo);
@@ -172,26 +158,107 @@ Considerar apenas investimentos que passam por 2026 ou se iniciam em 2026 ou pos
 
 ## Instruções de formatação da saída
 - Responda em português do Brasil, em **Markdown estruturado** (não HTML).
-- Use um título de nível 1 (#) para o relatório e um título de nível 2 (##) para cada capítulo, na ordem acima, para que um sumário navegável possa ser gerado.
-- Use **tabelas Markdown (GFM)** para histórico de preços, rankings de produção, mapa de ativos, censo de empresas, retrospectiva de projetos, investimentos e matriz de screening.
+- Use um título de nível 1 (#) para o relatório e um título de nível 2 (##) para cada capítulo, para que um sumário navegável possa ser gerado.
+- Use **tabelas Markdown (GFM)** para a tabela-mestra de players, investimentos, rankings e diretório de decisores.
 - Sempre que citar um investimento, informe a data ou janela; considere apenas investimentos que atravessam 2026 ou começam em 2026 ou depois.
-- Marque claramente como **estimativa** qualquer valor ou cronograma inferido, com a base de cálculo.
-- Seção ou campo sem base pública: escreva explicitamente "sem dados públicos suficientes" — NUNCA invente valores, empresas, datas ou coordenadas.
-- Mapas e conteúdos externos entram APENAS como links markdown — nunca iframe ou embed.
+- Marque claramente como **estimativa** qualquer valor ou cronograma inferido.
 - Inclua uma seção final \`## Fontes e Referências\` listando as fontes utilizadas.
 - Mantenha linguagem profissional e objetiva, adequada para apresentação à área comercial.`;
 
-export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
-  {
-    name: 'Empresa',
-    description:
-      'Pesquisa profunda focada em uma empresa específica — do desconhecimento total ao plano de ataque comercial (10 capítulos).',
-    promptBody: EMPRESA_TEMPLATE_PROMPT,
-  },
-  {
-    name: 'Segmento',
-    description:
-      'Pesquisa profunda sobre um segmento de mercado inteiro — commodities, produção, mapa de ativos, censo de empresas, investimentos, matriz de screening e estratégia comercial (11 capítulos).',
-    promptBody: SEGMENTO_TEMPLATE_PROMPT,
-  },
-];
+// ---------------------------------------------------------------------------
+
+const LEGACY_BY_NAME: Record<string, string> = {
+  Empresa: LEGACY_EMPRESA_PROMPT_V1,
+  Segmento: LEGACY_SEGMENTO_PROMPT_V1,
+};
+
+/** Normalização defensiva para comparação: CRLF→LF e espaço nas pontas. */
+function norm(s: string): string {
+  return (s || '').replace(/\r\n/g, '\n').trim();
+}
+
+interface ReportRow {
+  tenant: string;
+  template: string;
+  status: 'atualizado' | 'ja-atual' | 'editado-manualmente';
+}
+
+async function main() {
+  const current = new Map(BUILTIN_TEMPLATES.map((t) => [t.name, t]));
+
+  const tenants = await prisma.tenant.findMany({
+    select: { id: true, name: true, slug: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  const tenantLabel = new Map(tenants.map((t) => [t.id, `${t.slug} (${t.name})`]));
+
+  const templates = await prisma.deepResearchTemplate.findMany({
+    where: { isBuiltin: true, name: { in: [...current.keys()] } },
+    select: { id: true, tenantId: true, name: true, promptBody: true, updatedAt: true },
+    orderBy: [{ tenantId: 'asc' }, { name: 'asc' }],
+  });
+
+  console.log(
+    `[${APPLY ? 'APPLY' : 'DRY-RUN'}] ${tenants.length} tenants, ` +
+      `${templates.length} templates builtin (Empresa/Segmento) encontrados.`
+  );
+
+  const rows: ReportRow[] = [];
+
+  for (const tpl of templates) {
+    const tenant = tenantLabel.get(tpl.tenantId) || tpl.tenantId;
+    const novo = current.get(tpl.name);
+    const legacy = LEGACY_BY_NAME[tpl.name];
+    if (!novo || !legacy) continue; // nome fora do conjunto (não deveria ocorrer)
+
+    const body = norm(tpl.promptBody);
+    if (body === norm(novo.promptBody)) {
+      rows.push({ tenant, template: tpl.name, status: 'ja-atual' });
+      continue;
+    }
+    if (body === norm(legacy)) {
+      if (APPLY) {
+        // Placeholders/outline são derivados do promptBody na leitura — não há
+        // colunas derivadas para atualizar; description acompanha a nova versão.
+        await prisma.deepResearchTemplate.update({
+          where: { id: tpl.id },
+          data: { promptBody: novo.promptBody, description: novo.description },
+        });
+      }
+      rows.push({ tenant, template: tpl.name, status: 'atualizado' });
+      continue;
+    }
+    rows.push({ tenant, template: tpl.name, status: 'editado-manualmente' });
+  }
+
+  // Tenants ainda sem os templates builtin (lazy provision): nada a fazer — o
+  // ensureBuiltins cria com a versão nova no próximo acesso ao módulo.
+  const comTemplate = new Set(templates.map((t) => t.tenantId));
+  const semTemplate = tenants.filter((t) => !comTemplate.has(t.id));
+
+  const atualizados = rows.filter((r) => r.status === 'atualizado');
+  const jaAtuais = rows.filter((r) => r.status === 'ja-atual');
+  const editados = rows.filter((r) => r.status === 'editado-manualmente');
+
+  console.log('\n===== RELATÓRIO =====');
+  console.log(`${APPLY ? 'Atualizados' : 'Seriam atualizados'}: ${atualizados.length}`);
+  for (const r of atualizados) console.log(`  - ${r.tenant} · ${r.template}`);
+  console.log(`Já na versão atual: ${jaAtuais.length}`);
+  for (const r of jaAtuais) console.log(`  - ${r.tenant} · ${r.template}`);
+  console.log(`EDITADOS MANUALMENTE — NÃO sobrescritos (decisão humana): ${editados.length}`);
+  for (const r of editados) console.log(`  - ${r.tenant} · ${r.template}`);
+  if (semTemplate.length) {
+    console.log(`Sem template builtin ainda (criado no próximo acesso, já na versão nova): ${semTemplate.length}`);
+    for (const t of semTemplate) console.log(`  - ${t.slug} (${t.name})`);
+  }
+  if (!APPLY) {
+    console.log('\nDry-run: nada gravado. Use --apply (com ALLOW_PROD_DB=true em produção) para aplicar.');
+  }
+}
+
+main()
+  .then(() => process.exit(0))
+  .catch((e) => {
+    console.error('ERRO:', e?.stack || e);
+    process.exit(1);
+  });

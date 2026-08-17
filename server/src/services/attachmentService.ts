@@ -80,6 +80,10 @@ export const attachmentSelect = {
   storageProvider: true,
   dealId: true,
   companyId: true,
+  // Vínculos de atividade de lead (spec req 40): anexo pode pertencer a um lead
+  // e/ou a uma interação (Reunião) — a timeline lista/baixa por esses campos.
+  leadId: true,
+  interactionId: true,
   source: true,
   uploadedById: true,
   createdAt: true,
@@ -100,6 +104,8 @@ export interface AttachmentDto {
   storageProvider: string;
   dealId: string | null;
   companyId: string | null;
+  leadId: string | null;
+  interactionId: string | null;
   source: string;
   uploadedById: string | null;
   uploadedBy: AttachmentAuthor | null;
@@ -114,7 +120,14 @@ export interface AttachmentDto {
 type AttachmentDtoInput = Pick<
   Attachment,
   'id' | 'tenantId' | 'name' | 'mimeType' | 'size' | 'storageProvider' | 'dealId' | 'companyId' | 'source' | 'uploadedById' | 'createdAt'
-> & { uploadedBy?: AttachmentAuthor | null };
+> & {
+  uploadedBy?: AttachmentAuthor | null;
+  // Vínculos de atividade de lead (spec req 40) — OPCIONAIS no input para manter
+  // compat com chamadas/fixtures anteriores a este corte; o DTO sempre os emite
+  // (default null). Registros reais (attachmentSelect / model completo) já os têm.
+  leadId?: string | null;
+  interactionId?: string | null;
+};
 
 /** Metadados públicos do anexo (nunca expõe storageKey/bytes). */
 export function toAttachmentDto(a: AttachmentDtoInput): AttachmentDto {
@@ -127,6 +140,8 @@ export function toAttachmentDto(a: AttachmentDtoInput): AttachmentDto {
     storageProvider: a.storageProvider,
     dealId: a.dealId,
     companyId: a.companyId,
+    leadId: a.leadId ?? null,
+    interactionId: a.interactionId ?? null,
     source: a.source,
     uploadedById: a.uploadedById,
     uploadedBy: a.uploadedBy

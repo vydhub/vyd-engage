@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { avaliarCompletude } from '../../services/deepResearch/completeness.js';
+import { extractOutline, extractPlaceholders } from '../../services/deepResearch/promptUtils.js';
+import {
+  EMPRESA_TEMPLATE_PROMPT,
+  SEGMENTO_TEMPLATE_PROMPT,
+} from '../../services/deepResearch/builtinTemplates.js';
 
 /**
  * Detecção de relatório incompleto QUANDO O PROVEDOR DIZ QUE ESTÁ COMPLETO.
@@ -86,5 +91,86 @@ describe('avaliarCompletude', () => {
     const r = avaliarCompletude('Escreva um resumo livre sobre a empresa.', 'Um resumo qualquer.');
     expect(r.esperados).toBe(0);
     expect(r.incompleto).toBe(false);
+  });
+});
+
+/**
+ * Contrato de renderização dos templates builtin (spec req. 54): o card
+ * "O que você vai receber" e o detector de completude derivam AMBOS de
+ * extractOutline(promptBody). Estes testes prendem os capítulos novos do
+ * template de Segmento expandido (reqs. 49-52) a esse contrato — se um título
+ * de capítulo passar a começar com palavra ignorada pelo outline (objetivo/
+ * estrutura/instru…/formata/fontes/refer…), o capítulo some do card e deixa de
+ * ser cobrado pela continuação automática, silenciosamente.
+ */
+
+const CAPITULOS_SEGMENTO = [
+  'Escopo, premissas e leitura executiva',
+  'Visão Geral do Segmento e Commodities',
+  'Mapa de Empresas e Ativos no Território',
+  'Censo de Empresas do Segmento',
+  'Retrospectiva de Projetos Implantados',
+  'Investimentos de Capital e Correntes (a partir de 2026)',
+  'Matriz de Screening do Segmento',
+  'Maturidade, modelos de contratação e concorrência',
+  'Conteúdo local e política regional',
+  'Posicionamento e Proposta de Valor',
+  'Pipeline futuro, estratégia comercial e limitações',
+];
+
+/** Relatório sintético cobrindo os títulos dados, com fecho válido. */
+function relatorioSegmento(titulos: string[]): string {
+  const corpo = titulos
+    .map((t, i) => `## Capítulo ${i + 1} — ${t}\n\nTexto do capítulo.`)
+    .join('\n\n');
+  return `# Pesquisa de Segmento\n\n${corpo}\n\n## Fontes e Referências\n\n1. Fonte.`;
+}
+
+describe('template builtin de Segmento (expandido)', () => {
+  it('o outline expõe exatamente os 11 capítulos novos, na ordem', () => {
+    expect(extractOutline(SEGMENTO_TEMPLATE_PROMPT)).toEqual(CAPITULOS_SEGMENTO);
+  });
+
+  it('mantém os placeholders [SEGMENTO] e [REGIÃO] (o link do mapa IBRAM não vira placeholder)', () => {
+    expect(extractPlaceholders(SEGMENTO_TEMPLATE_PROMPT)).toEqual(['SEGMENTO', 'REGIÃO']);
+  });
+
+  it('não pede mais diretório de decisores (concentrado no template de Empresa)', () => {
+    expect(SEGMENTO_TEMPLATE_PROMPT.toLowerCase()).not.toContain('diretório de decisores');
+    expect(SEGMENTO_TEMPLATE_PROMPT.toLowerCase()).not.toContain('decisores por empresa-alvo');
+  });
+
+  it('referencia o mapa IBRAM como link markdown (nunca iframe)', () => {
+    expect(SEGMENTO_TEMPLATE_PROMPT).toContain(
+      '[Mapa da Mineração Brasileira — IBRAM](https://www.google.com/maps/d/u/0/viewer?mid=1cYf5kH02tHYtKnX9ZvTomkRMO0FhkBw&femb=1)'
+    );
+    expect(SEGMENTO_TEMPLATE_PROMPT.toLowerCase()).not.toContain('<iframe');
+  });
+
+  it('instrui "sem dados públicos suficientes" em vez de inventar (req. 55)', () => {
+    expect(SEGMENTO_TEMPLATE_PROMPT).toContain('sem dados públicos suficientes');
+  });
+
+  it('relatório com os 11 capítulos é considerado completo', () => {
+    const r = avaliarCompletude(SEGMENTO_TEMPLATE_PROMPT, relatorioSegmento(CAPITULOS_SEGMENTO));
+    expect(r.esperados).toBe(CAPITULOS_SEGMENTO.length);
+    expect(r.faltando).toEqual([]);
+    expect(r.incompleto).toBe(false);
+  });
+
+  it('capítulo novo faltando (Matriz de Screening) é acusado pelo detector', () => {
+    const semScreening = CAPITULOS_SEGMENTO.filter((t) => t !== 'Matriz de Screening do Segmento');
+    const r = avaliarCompletude(SEGMENTO_TEMPLATE_PROMPT, relatorioSegmento(semScreening));
+    expect(r.incompleto).toBe(true);
+    expect(r.faltando.join(' ')).toContain('Matriz de Screening');
+  });
+});
+
+describe('template builtin de Empresa', () => {
+  it('Mapa de Stakeholders segue no outline — local canônico do diretório de decisores', () => {
+    const outline = extractOutline(EMPRESA_TEMPLATE_PROMPT);
+    expect(outline.join(' | ')).toContain('Mapa de Stakeholders');
+    expect(EMPRESA_TEMPLATE_PROMPT).toContain('decide | influencia | veta');
+    expect(EMPRESA_TEMPLATE_PROMPT).toContain('Engenharia/Projetos/Suprimentos/Diretoria');
   });
 });

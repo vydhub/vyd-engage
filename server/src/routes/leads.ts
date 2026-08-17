@@ -19,6 +19,7 @@ import prisma from '../config/database.js';
 import { createAuditLog } from '../utils/auditLogger.js';
 import { getEffective, visibilityScope } from '../services/permissionService.js';
 import { approvalService } from '../services/approvalService.js';
+import { emitToTenant } from '../services/socketService.js';
 
 const router = Router();
 
@@ -642,6 +643,73 @@ router.get('/:id', async (req, res, next) => {
     const lead = await leadService.findById(req.user.tenantId, req.params.id);
     res.json(lead);
   } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/leads/contacts — Cadastro rápido de CONTATO (pessoa do cliente)
+// vinculado a uma empresa (specs/leads-oportunidade reqs. 4 e 36). Contato é um
+// Lead com isContact=true; usado pelos quick-creates inline (form de lead e
+// participantes de atividade).
+const createContactSchema = z.object({
+  name: z.string().min(1),
+  companyId: z.string().uuid({ message: 'Empresa é obrigatória' }),
+  position: z.string().optional(),
+  email: vazioComoAusente(z.string().email().optional()),
+  phone: z.string().optional(),
+});
+
+router.post('/contacts', async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return next(createError('Authentication required', 401));
+    }
+
+    const eff = await getEffective({
+      userId: req.user.userId,
+      tenantId: req.user.tenantId,
+      role: req.user.role,
+      isPlatformAdmin: req.user.isPlatformAdmin,
+    });
+    if (!eff.entities.leads.create) {
+      return next(createError('Insufficient permissions', 403, 'INSUFFICIENT_PERMISSIONS'));
+    }
+
+    // Contato conta como Lead no limite do plano (caso extremo 6)
+    const { planLimitsService } = await import('../services/planLimitsService.js');
+    await planLimitsService.enforceLimit(req.user.tenantId, 'leads');
+
+    const data = createContactSchema.parse(req.body);
+
+    const company = await prisma.company.findFirst({
+      where: { id: data.companyId, tenantId: req.user.tenantId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!company) {
+      return next(createError('Empresa não encontrada', 404, 'COMPANY_NOT_FOUND'));
+    }
+
+    const contact = await prisma.lead.create({
+      data: {
+        tenantId: req.user.tenantId,
+        name: data.name,
+        position: data.position,
+        email: data.email,
+        phone: data.phone,
+        companyId: data.companyId,
+        isContact: true,
+        convertedAt: new Date(),
+      },
+    });
+
+    planLimitsService.invalidateUsage(req.user.tenantId).catch(() => {});
+    emitToTenant(req.user.tenantId, 'lead:created', { lead: contact });
+
+    res.status(201).json({ status: 201, data: contact });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return next(createError('Validation error', 400, 'VALIDATION_ERROR', error.errors));
+    }
     next(error);
   }
 });

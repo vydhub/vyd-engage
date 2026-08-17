@@ -169,6 +169,26 @@ import('./jobs/clientFollowUpChecker.js')
     logger.error('Failed to initialize client follow-up checker', error);
   });
 
+// Lembrete de lead em andamento a cada 30 dias (specs/leads-oportunidade req. 47)
+// — always active, sem Redis (padrão clientFollowUpChecker).
+import('./jobs/leadReminderChecker.js')
+  .then(({ startLeadReminderChecker }) => {
+    startLeadReminderChecker();
+  })
+  .catch((error) => {
+    logger.error('Failed to initialize lead reminder checker', error);
+  });
+
+// Tarefa automática "Planejamento de próximas ações" p/ lead sem tarefa
+// (specs/leads-oportunidade req. 48) — always active, sem Redis.
+import('./jobs/leadPlanningTaskChecker.js')
+  .then(({ startLeadPlanningTaskChecker }) => {
+    startLeadPlanningTaskChecker();
+  })
+  .catch((error) => {
+    logger.error('Failed to initialize lead planning task checker', error);
+  });
+
 // Pendências de atestação: lembretes/digest + auto-criação por deal ganho (no Redis)
 import('./jobs/atestadoPendenciaChecker.js')
   .then(({ initializeAtestadoPendenciaChecker }) => {

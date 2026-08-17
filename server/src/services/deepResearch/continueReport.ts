@@ -11,7 +11,8 @@ import type { ResearchProvider, ResearchSource } from './providers/types.js';
  * do teto), então a saída é pedir a continuação e emendar.
  *
  * Regras que existem para isto não virar um cano de dinheiro:
- *  - teto de tentativas (DEEP_RESEARCH_MAX_CONTINUATIONS, default 2);
+ *  - teto de tentativas (DEEP_RESEARCH_MAX_CONTINUATIONS, default 3 — elevado
+ *    de 2 quando o template de Segmento foi expandido para 11 capítulos);
  *  - PARA no primeiro ciclo que não fizer progresso — se o modelo devolve algo
  *    que não cobre nenhuma seção nova, insistir só queima crédito;
  *  - a cada rodada pede APENAS as seções que ainda faltam, e não o relatório
@@ -25,7 +26,7 @@ const CAUDA_CONTEXTO = 1500;
 
 function maxTentativas(): number {
   const raw = parseInt(process.env.DEEP_RESEARCH_MAX_CONTINUATIONS || '', 10);
-  return Number.isFinite(raw) && raw >= 0 ? raw : 2;
+  return Number.isFinite(raw) && raw >= 0 ? raw : 3;
 }
 
 /**
