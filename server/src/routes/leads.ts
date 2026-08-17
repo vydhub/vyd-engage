@@ -43,7 +43,9 @@ const vazioComoAusente = <T extends z.ZodTypeAny>(schema: T) =>
 // Probabilidade Go×Get: degraus fixos definidos pela área comercial (req. 9)
 const GO_GET_STEPS = [10, 25, 50, 75, 90] as const;
 
-const createLeadSchema = z.object({
+// Exportado para o teste de contrato (createLeadPayload.test.ts) validar o
+// schema REAL da rota — uma cópia divergiria em silêncio.
+export const createLeadSchema = z.object({
   name: z.string().min(1),
   email: vazioComoAusente(z.string().email().optional()),
   phone: z.string().optional(),
@@ -77,7 +79,7 @@ const createLeadSchema = z.object({
 // quando enviados, o serviço valida a coerência do par final. Os campos de
 // oportunidade aceitam NULL explícito para permitir LIMPAR o valor na edição
 // (req. 9 — sem isso, apagar um campo salvava silenciosamente o valor antigo).
-const updateLeadSchema = createLeadSchema.partial().extend({
+export const updateLeadSchema = createLeadSchema.partial().extend({
   id: z.string().uuid(),
   notes: z.string().nullable().optional(),
   estimatedValue: z.number().nonnegative().nullable().optional(),

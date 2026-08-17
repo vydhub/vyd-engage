@@ -465,7 +465,9 @@ export const leadService = {
     });
 
     // Motivo acompanha o ciclo do status (req. 13/16): grava na transição
-    // terminal; limpa ao voltar para NOVO/EM_ANDAMENTO.
+    // terminal; limpa ao voltar para NOVO/EM_ANDAMENTO. Sem transição, um lead
+    // JÁ terminal pode ter o motivo/nota corrigidos (o formulário envia os
+    // valores; descartá-los seria retenção silenciosa).
     if (statusChanged) {
       if (TERMINAL_LEAD_STATUSES.includes(data.status!)) {
         updateData.statusReason = data.statusReason;
@@ -475,6 +477,14 @@ export const leadService = {
         updateData.statusReason = null;
         updateData.statusReasonNote = null;
       }
+    } else if (
+      data.statusReason !== undefined &&
+      TERMINAL_LEAD_STATUSES.includes(existingLead.status)
+    ) {
+      assertStatusReason(existingLead.status, data.statusReason, data.statusReasonNote);
+      updateData.statusReason = data.statusReason;
+      updateData.statusReasonNote =
+        data.statusReason === 'OUTRO' ? data.statusReasonNote : (data.statusReasonNote ?? null);
     }
 
     const lead = await prisma.lead.update({

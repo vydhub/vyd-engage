@@ -143,6 +143,27 @@ describe('leadService.update — transições de status (reqs. 13-16)', () => {
     expect(updateArgs.data.statusReasonNote).toBeNull();
   });
 
+  it('corrigir motivo/nota de lead JÁ terminal sem mudar status persiste', async () => {
+    prismaMock.lead.findFirst.mockResolvedValue(
+      leadBase({ status: 'PAUSADO', statusReason: 'PAUSADO_PELO_CLIENTE' }) as never
+    );
+    prismaMock.lead.update.mockResolvedValue(
+      leadBase({ status: 'PAUSADO', statusReason: 'PROJETO_SUSPENSO' }) as never
+    );
+
+    await leadService.update(TENANT, {
+      id: 'lead-1',
+      status: 'PAUSADO' as never, // mesmo status — sem transição
+      statusReason: 'PROJETO_SUSPENSO' as never,
+    });
+
+    const updateArgs = (prismaMock.lead.update as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls[0][0] as { data: Record<string, unknown> };
+    expect(updateArgs.data.statusReason).toBe('PROJETO_SUSPENSO');
+    // Sem transição não há nova Interaction STATUS_CHANGE
+    expect(prismaMock.interaction.create).not.toHaveBeenCalled();
+  });
+
   it('limpeza explícita (req. 9): null zera valor/prazo/probabilidade/notas', async () => {
     prismaMock.lead.findFirst.mockResolvedValue(leadBase() as never);
     prismaMock.lead.update.mockResolvedValue(leadBase() as never);

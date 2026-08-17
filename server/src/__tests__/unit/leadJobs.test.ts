@@ -99,6 +99,15 @@ describe('leadReminderChecker (req. 47)', () => {
         metadata: { leadId: 'lead-1' },
       })
     );
+
+    // A janela vem do ENV (LEAD_REMINDER_DAYS=1): a query corta em now-1d — um
+    // job que ignorasse o env passaria com o default de 30d e este assert pega.
+    const findArgs = firstCallArg<{
+      where: { status: string; createdAt: { lte: Date } };
+    }>(prismaMock.lead.findMany);
+    expect(findArgs.where.status).toBe('EM_ANDAMENTO');
+    const expectedCutoff = NOW.getTime() - 1 * DAY_MS;
+    expect(Math.abs(findArgs.where.createdAt.lte.getTime() - expectedCutoff)).toBeLessThan(1000);
   });
 
   it('dedup persistido: lead já lembrado na janela é pulado (caso extremo 10)', async () => {
