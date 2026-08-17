@@ -1,5 +1,5 @@
 import prisma from '../config/database.js';
-import { LeadStatus, LeadSource, ScoreEvent } from '@prisma/client';
+import { LeadStatus, LeadSource, LeadStatusReason, ScoreEvent } from '@prisma/client';
 import { createError } from '../middleware/errorHandler.js';
 import { scoringService } from './scoringService.js';
 import { dispatchTrigger } from '../jobs/automationEngine.js';
@@ -13,8 +13,15 @@ export interface CreateLeadData {
   phone?: string;
   company?: string;
   position?: string;
+  companyId?: string;
+  contactId?: string;
   status?: LeadStatus;
   source?: LeadSource;
+  statusReason?: LeadStatusReason;
+  statusReasonNote?: string;
+  estimatedValue?: number;
+  estimatedTimeline?: string;
+  probabilityGoGet?: number;
   score?: number;
   customFields?: Record<string, any>;
   notes?: string;
@@ -26,8 +33,117 @@ export interface UpdateLeadData extends Partial<CreateLeadData> {
   id: string;
 }
 
+/** Status terminais: transição para eles exige motivo (spec req. 13). */
+export const TERMINAL_LEAD_STATUSES: LeadStatus[] = [
+  LeadStatus.PAUSADO,
+  LeadStatus.CANCELADO,
+  LeadStatus.ENCERRADO,
+];
+
+/** Rótulos pt-BR dos motivos, usados na timeline (spec req. 15). */
+export const LEAD_STATUS_REASON_LABELS: Record<LeadStatusReason, string> = {
+  CONVERTIDO_EM_OPORTUNIDADE: 'Convertido em oportunidade',
+  PAUSADO_PELO_CLIENTE: 'Pausado pelo cliente',
+  PROJETO_SUSPENSO: 'Projeto suspenso',
+  SEM_ADERENCIA_TECNICA: 'Sem aderência técnica',
+  CONCORRENTE_ESCOLHIDO: 'Concorrente escolhido',
+  PRECO: 'Preço',
+  PRAZO: 'Prazo',
+  DECISAO_INTERNA_CLIENTE: 'Decisão interna do cliente',
+  SEM_RETORNO: 'Sem retorno',
+  OUTRO: 'Outro',
+};
+
+const LEAD_STATUS_LABELS: Record<LeadStatus, string> = {
+  NOVO: 'Novo',
+  EM_ANDAMENTO: 'Em Andamento',
+  PAUSADO: 'Pausado',
+  CANCELADO: 'Cancelado',
+  ENCERRADO: 'Encerrado',
+};
+
+/**
+ * Valida o motivo exigido nas transições para status terminal (req. 13-14).
+ * Lança 400 STATUS_REASON_REQUIRED / STATUS_REASON_NOTE_REQUIRED.
+ */
+export function assertStatusReason(
+  status: LeadStatus,
+  statusReason?: LeadStatusReason | null,
+  statusReasonNote?: string | null
+) {
+  if (!TERMINAL_LEAD_STATUSES.includes(status)) return;
+  if (!statusReason) {
+    throw createError(
+      'Informe o motivo para pausar, cancelar ou encerrar o lead',
+      400,
+      'STATUS_REASON_REQUIRED'
+    );
+  }
+  if (statusReason === LeadStatusReason.OUTRO && !statusReasonNote?.trim()) {
+    throw createError(
+      'Descreva o motivo quando selecionar "Outro"',
+      400,
+      'STATUS_REASON_NOTE_REQUIRED'
+    );
+  }
+}
+
+/**
+ * Valida a coerência Empresa ↔ Contato do lead-oportunidade (req. 1-2):
+ * empresa do tenant; contato = Lead isContact=true do tenant, da MESMA empresa.
+ * `companyId`/`contactId` já resolvidos (par final após o update).
+ */
+async function assertOpportunityLinks(
+  tenantId: string,
+  companyId?: string | null,
+  contactId?: string | null
+) {
+  if (companyId) {
+    const company = await prisma.company.findFirst({
+      where: { id: companyId, tenantId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!company) {
+      throw createError('Empresa não encontrada', 404, 'COMPANY_NOT_FOUND');
+    }
+  }
+  if (contactId) {
+    const contact = await prisma.lead.findFirst({
+      where: { id: contactId, tenantId, deletedAt: null },
+      select: { id: true, isContact: true, companyId: true },
+    });
+    if (!contact || !contact.isContact) {
+      throw createError('Contato não encontrado', 404, 'CONTACT_NOT_FOUND');
+    }
+    if (!companyId || contact.companyId !== companyId) {
+      throw createError(
+        'O contato selecionado não pertence à empresa do lead',
+        400,
+        'CONTACT_COMPANY_MISMATCH'
+      );
+    }
+  }
+}
+
+/** Include padrão do lead-oportunidade (empresa, contato, responsável, tags). */
+const leadInclude = {
+  tags: { include: { tag: true } },
+  assignedUser: { select: { id: true, name: true, email: true } },
+  companyRef: { select: { id: true, name: true, fantasyName: true } },
+  contactRef: { select: { id: true, name: true, position: true, email: true, phone: true } },
+} as const;
+
 export const leadService = {
   async create(tenantId: string, data: CreateLeadData) {
+    // Coerência dos vínculos e do motivo (quando informados). A obrigatoriedade
+    // de companyId/contactId na criação MANUAL é imposta pelo Zod da rota
+    // (createLeadSchema); captação pública/import criam sem vínculo (caso 5).
+    await assertOpportunityLinks(tenantId, data.companyId, data.contactId);
+    const status = data.status || LeadStatus.NOVO;
+    if (data.status && TERMINAL_LEAD_STATUSES.includes(data.status)) {
+      assertStatusReason(data.status, data.statusReason, data.statusReasonNote);
+    }
+
     const lead = await prisma.lead.create({
       data: {
         tenantId,
@@ -36,20 +152,23 @@ export const leadService = {
         phone: data.phone,
         company: data.company,
         position: data.position,
-        status: data.status || LeadStatus.NEW,
-        source: data.source || LeadSource.WEBSITE,
+        companyId: data.companyId,
+        contactId: data.contactId,
+        status,
+        source: data.source || LeadSource.OUTROS,
+        statusReason: TERMINAL_LEAD_STATUSES.includes(status) ? data.statusReason : undefined,
+        statusReasonNote: TERMINAL_LEAD_STATUSES.includes(status)
+          ? data.statusReasonNote
+          : undefined,
+        estimatedValue: data.estimatedValue,
+        estimatedTimeline: data.estimatedTimeline,
+        probabilityGoGet: data.probabilityGoGet,
         score: data.score || 0,
         customFields: data.customFields || {},
         notes: data.notes,
         assignedTo: data.assignedTo,
       },
-      include: {
-        tags: {
-          include: {
-            tag: true,
-          },
-        },
-      },
+      include: leadInclude,
     });
 
     // Add tags if provided
@@ -75,8 +194,8 @@ export const leadService = {
 
     // Dispatch automation trigger
     dispatchTrigger(tenantId, 'lead_created', lead.id, {
-      source: data.source || 'WEBSITE',
-      status: data.status || 'NEW',
+      source: data.source || 'OUTROS',
+      status: status,
     }).catch(() => {});
 
     planLimitsService.invalidateUsage(tenantId).catch(() => {});
@@ -98,13 +217,7 @@ export const leadService = {
         tenantId,
         deletedAt: null,
       },
-      include: {
-        tags: {
-          include: {
-            tag: true,
-          },
-        },
-      },
+      include: leadInclude,
     });
 
     if (!lead) {
@@ -121,12 +234,13 @@ export const leadService = {
       throw createError('Lead is already a contact', 400, 'ALREADY_CONTACT');
     }
 
+    // Não força mais status (o antigo WON não existe na régua nova):
+    // contato é pessoa, não oportunidade — o status do lead fica intocado.
     const updated = await prisma.lead.update({
       where: { id },
       data: {
         isContact: true,
         convertedAt: new Date(),
-        status: LeadStatus.WON,
       },
       include: {
         tags: {
@@ -200,6 +314,7 @@ export const leadService = {
       tagId?: string;
       assignedTo?: string;
       isContact?: boolean;
+      companyId?: string;
       page?: number;
       limit?: number;
       sort?: string;
@@ -241,6 +356,12 @@ export const leadService = {
       where.isContact = filters.isContact;
     }
 
+    // Contatos/leads de uma empresa específica (req. 5) — também usado pelo
+    // seletor de participantes e pelo de stakeholders do Desdobramento.
+    if (filters?.companyId) {
+      where.companyId = filters.companyId;
+    }
+
     if (filters?.search) {
       where.OR = [
         { name: { contains: filters.search, mode: 'insensitive' } },
@@ -261,13 +382,7 @@ export const leadService = {
     const [leads, total] = await Promise.all([
       prisma.lead.findMany({
         where,
-        include: {
-          tags: {
-            include: {
-              tag: true,
-            },
-          },
-        },
+        include: leadInclude,
         orderBy: {
           [sortField]: sortOrder,
         },
@@ -288,9 +403,25 @@ export const leadService = {
     };
   },
 
-  async update(tenantId: string, data: UpdateLeadData) {
+  async update(tenantId: string, data: UpdateLeadData, userId?: string) {
     // Verify lead exists and belongs to tenant
     const existingLead = await this.findById(tenantId, data.id);
+
+    // Coerência Empresa ↔ Contato sobre o PAR FINAL (req. 2 + caso extremo 2):
+    // o valor novo quando enviado, senão o já gravado.
+    if (data.companyId !== undefined || data.contactId !== undefined) {
+      const finalCompanyId =
+        data.companyId !== undefined ? data.companyId : existingLead.companyId;
+      const finalContactId =
+        data.contactId !== undefined ? data.contactId : existingLead.contactId;
+      await assertOpportunityLinks(tenantId, finalCompanyId, finalContactId);
+    }
+
+    // Motivo obrigatório na TRANSIÇÃO para status terminal (req. 13-14).
+    const statusChanged = data.status !== undefined && data.status !== existingLead.status;
+    if (statusChanged && TERMINAL_LEAD_STATUSES.includes(data.status!)) {
+      assertStatusReason(data.status!, data.statusReason, data.statusReasonNote);
+    }
 
     const updateData: any = {
       name: data.name,
@@ -298,8 +429,13 @@ export const leadService = {
       phone: data.phone,
       company: data.company,
       position: data.position,
+      companyId: data.companyId,
+      contactId: data.contactId,
       status: data.status,
       source: data.source,
+      estimatedValue: data.estimatedValue,
+      estimatedTimeline: data.estimatedTimeline,
+      probabilityGoGet: data.probabilityGoGet,
       score: data.score,
       customFields: data.customFields,
       notes: data.notes,
@@ -313,20 +449,56 @@ export const leadService = {
       }
     });
 
+    // Motivo acompanha o ciclo do status (req. 13/16): grava na transição
+    // terminal; limpa ao voltar para NOVO/EM_ANDAMENTO.
+    if (statusChanged) {
+      if (TERMINAL_LEAD_STATUSES.includes(data.status!)) {
+        updateData.statusReason = data.statusReason;
+        updateData.statusReasonNote =
+          data.statusReason === 'OUTRO' ? data.statusReasonNote : (data.statusReasonNote ?? null);
+      } else {
+        updateData.statusReason = null;
+        updateData.statusReasonNote = null;
+      }
+    }
+
     const lead = await prisma.lead.update({
       where: { id: data.id },
       data: updateData,
-      include: {
-        tags: {
-          include: {
-            tag: true,
-          },
-        },
-      },
+      include: leadInclude,
     });
 
     // Score and trigger status change
-    if (data.status && data.status !== existingLead.status) {
+    if (statusChanged) {
+      // Timeline (req. 15): registra a transição com motivo/nota.
+      const reasonLabel = updateData.statusReason
+        ? LEAD_STATUS_REASON_LABELS[updateData.statusReason as LeadStatusReason]
+        : null;
+      const contentParts = [
+        `Status alterado de "${LEAD_STATUS_LABELS[existingLead.status]}" para "${LEAD_STATUS_LABELS[data.status!]}"`,
+      ];
+      if (reasonLabel) contentParts.push(`Motivo: ${reasonLabel}`);
+      if (updateData.statusReasonNote) contentParts.push(`Nota: ${updateData.statusReasonNote}`);
+      await prisma.interaction
+        .create({
+          data: {
+            tenantId,
+            leadId: data.id,
+            type: 'STATUS_CHANGE',
+            direction: 'OUTBOUND',
+            subject: 'Mudança de status',
+            content: contentParts.join('. '),
+            userId,
+            metadata: {
+              previousStatus: existingLead.status,
+              newStatus: data.status,
+              statusReason: updateData.statusReason ?? null,
+              statusReasonNote: updateData.statusReasonNote ?? null,
+            },
+          },
+        })
+        .catch(() => {});
+
       scoringService.processEvent(tenantId, data.id, ScoreEvent.STATUS_CHANGED).catch(() => {});
       dispatchTrigger(tenantId, 'status_changed', data.id, {
         oldStatus: existingLead.status,
@@ -385,6 +557,102 @@ export const leadService = {
     }).catch(() => {});
 
     return updatedLead;
+  },
+
+  /**
+   * Converte o lead em oportunidade (req. 17-18): cria o Deal copiando os dados
+   * da oportunidade, vincula o contato como DealContact, encerra o lead com
+   * motivo CONVERTIDO_EM_OPORTUNIDADE e registra a transição na timeline.
+   * Idempotente: se o lead já foi convertido e tem deal, devolve o existente.
+   */
+  async convertToOpportunity(tenantId: string, id: string, userId?: string) {
+    const lead = await this.findById(tenantId, id);
+
+    // Guarda contra clique duplo (caso extremo 13)
+    if (
+      lead.status === LeadStatus.ENCERRADO &&
+      lead.statusReason === LeadStatusReason.CONVERTIDO_EM_OPORTUNIDADE
+    ) {
+      const existingDeal = await prisma.deal.findFirst({
+        where: { tenantId, leadId: id, deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, name: true },
+      });
+      if (existingDeal) {
+        return { deal: existingDeal, alreadyConverted: true };
+      }
+    }
+
+    // Notas do deal levam o prazo estimado (texto livre) do lead (req. 17a)
+    const noteParts: string[] = [];
+    if (lead.estimatedTimeline) noteParts.push(`Prazo estimado (lead): ${lead.estimatedTimeline}`);
+    if (lead.notes) noteParts.push(lead.notes);
+
+    // Import dinâmico para evitar ciclo leadService ↔ dealService
+    const { dealService } = await import('./dealService.js');
+    const deal = await dealService.create(tenantId, {
+      name: lead.name,
+      value: lead.estimatedValue ? Number(lead.estimatedValue) : 0,
+      probability: lead.probabilityGoGet ?? undefined,
+      leadId: id,
+      companyId: lead.companyId ?? undefined,
+      assignedTo: lead.assignedTo ?? undefined,
+      notes: noteParts.length ? noteParts.join('\n\n') : undefined,
+    });
+
+    // Contato principal do lead entra como contato do deal (req. 17a)
+    if (lead.contactId) {
+      await prisma.dealContact
+        .create({
+          data: { dealId: deal.id, leadId: lead.contactId, roleInDeal: 'Contato principal' },
+        })
+        .catch(() => {}); // unique (dealId, leadId) — ignora duplicata
+    }
+
+    // Encerra o lead como convertido — sem diálogo de motivo (req. 17b)
+    const updated = await prisma.lead.update({
+      where: { id },
+      data: {
+        status: LeadStatus.ENCERRADO,
+        statusReason: LeadStatusReason.CONVERTIDO_EM_OPORTUNIDADE,
+        statusReasonNote: null,
+      },
+      include: leadInclude,
+    });
+
+    // Timeline da conversão (req. 17c)
+    await prisma.interaction
+      .create({
+        data: {
+          tenantId,
+          leadId: id,
+          type: 'STATUS_CHANGE',
+          direction: 'OUTBOUND',
+          subject: 'Convertido em oportunidade',
+          content: `Lead convertido em oportunidade "${deal.name}". Status: Encerrado (Convertido em oportunidade).`,
+          userId,
+          metadata: {
+            action: 'convert_to_opportunity',
+            dealId: deal.id,
+            previousStatus: lead.status,
+            newStatus: LeadStatus.ENCERRADO,
+            statusReason: LeadStatusReason.CONVERTIDO_EM_OPORTUNIDADE,
+          },
+        },
+      })
+      .catch(() => {});
+
+    dispatchTrigger(tenantId, 'status_changed', id, {
+      oldStatus: lead.status,
+      newStatus: LeadStatus.ENCERRADO,
+    }).catch(() => {});
+    webhookDispatcher.emitLeadEvent(tenantId, 'lead.status_changed', {
+      ...updated,
+      _extra: { previous_status: lead.status, new_status: LeadStatus.ENCERRADO },
+    });
+    emitToTenant(tenantId, 'lead:updated', { lead: updated });
+
+    return { deal, lead: updated, alreadyConverted: false };
   },
 
   async delete(tenantId: string, id: string) {

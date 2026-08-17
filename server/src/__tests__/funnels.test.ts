@@ -225,8 +225,8 @@ describe('Funnel Service', () => {
   describe('moveLead', () => {
     it('should move a lead to another column and update status', async () => {
       const funnel = await funnelService.create(testTenantId, { name: 'Test' });
-      const sourceCol = funnel.columns[0]; // Novo (NEW)
-      const targetCol = funnel.columns[2]; // Qualificado (QUALIFIED)
+      const sourceCol = funnel.columns[0]; // Novo (NOVO)
+      const targetCol = funnel.columns[2]; // Pausado (PAUSADO)
 
       // Create a lead in the first column
       const lead = await prisma.lead.create({
@@ -234,8 +234,8 @@ describe('Funnel Service', () => {
           tenantId: testTenantId,
           name: 'Move Lead',
           email: 'move@test.com',
-          status: 'NEW',
-          source: 'WEBSITE',
+          status: 'NOVO',
+          source: 'OUTROS',
           funnelColumnId: sourceCol.id,
           positionInColumn: 0,
         },

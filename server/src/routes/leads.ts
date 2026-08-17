@@ -7,7 +7,13 @@ import { authenticate, requirePermission } from '../middleware/auth.js';
 import { tenantScope } from '../middleware/tenant.js';
 import { aiLimiter } from '../middleware/rateLimit.js';
 import { createError } from '../middleware/errorHandler.js';
-import { LeadStatus, LeadSource, NotificationType, ApprovalType } from '@prisma/client';
+import { LeadStatus, LeadSource, LeadStatusReason, NotificationType, ApprovalType } from '@prisma/client';
+import { normalizeLeadStatus, normalizeLeadSource } from '../utils/leadLegacy.js';
+import {
+  TERMINAL_LEAD_STATUSES,
+  LEAD_STATUS_REASON_LABELS,
+  assertStatusReason,
+} from '../services/leadService.js';
 import { notificationService } from '../services/notificationService.js';
 import prisma from '../config/database.js';
 import { createAuditLog } from '../utils/auditLogger.js';
@@ -32,14 +38,32 @@ router.use(tenantScope);
 const vazioComoAusente = <T extends z.ZodTypeAny>(schema: T) =>
   z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), schema);
 
+// Probabilidade Go×Get: degraus fixos definidos pela área comercial (req. 9)
+const GO_GET_STEPS = [10, 25, 50, 75, 90] as const;
+
 const createLeadSchema = z.object({
   name: z.string().min(1),
   email: vazioComoAusente(z.string().email().optional()),
   phone: z.string().optional(),
   company: z.string().optional(),
   position: z.string().optional(),
+  // Vínculo OBRIGATÓRIO na criação manual (req. 1); a coerência (tenant,
+  // isContact, mesma empresa) é validada no leadService.
+  companyId: z.string().uuid({ message: 'Empresa é obrigatória' }),
+  contactId: z.string().uuid({ message: 'Contato é obrigatório' }),
   status: z.nativeEnum(LeadStatus).optional(),
   source: z.nativeEnum(LeadSource).optional(),
+  statusReason: z.nativeEnum(LeadStatusReason).optional(),
+  statusReasonNote: z.string().max(2000).optional(),
+  estimatedValue: z.number().nonnegative().optional(),
+  estimatedTimeline: z.string().max(500).optional(),
+  probabilityGoGet: z
+    .number()
+    .int()
+    .refine((v): v is (typeof GO_GET_STEPS)[number] => GO_GET_STEPS.includes(v as any), {
+      message: 'Probabilidade Go×Get deve ser 10, 25, 50, 75 ou 90',
+    })
+    .optional(),
   score: z.number().int().min(0).max(100).optional(),
   customFields: z.record(z.any()).optional(),
   notes: z.string().optional(),
@@ -47,16 +71,21 @@ const createLeadSchema = z.object({
   tagIds: z.array(z.string().uuid()).optional(),
 });
 
-const updateLeadSchema = createLeadSchema.extend({
+// Edição não força os vínculos (leads legados continuam editáveis — caso 1);
+// quando enviados, o serviço valida a coerência do par final.
+const updateLeadSchema = createLeadSchema.partial().extend({
   id: z.string().uuid(),
 });
 
 const querySchema = z.object({
-  status: z.nativeEnum(LeadStatus).optional(),
-  source: z.nativeEnum(LeadSource).optional(),
+  // Aceita também os valores LEGADOS de status/origem (SavedViews antigas) e
+  // os traduz para a régua nova — ver utils/leadLegacy.ts.
+  status: z.preprocess(normalizeLeadStatus, z.nativeEnum(LeadStatus).optional()),
+  source: z.preprocess(normalizeLeadSource, z.nativeEnum(LeadSource).optional()),
   search: z.string().optional(),
   tagId: z.string().uuid().optional(),
   assignedTo: z.string().uuid().optional(),
+  companyId: z.string().uuid().optional(),
   // z.coerce.boolean() é uma armadilha: Boolean('false') === true. Mapeamos
   // explicitamente a string 'true'/'false' para evitar a aba Leads filtrar
   // isContact=true por engano.
@@ -144,10 +173,45 @@ router.patch('/bulk', requirePermission('bulkActions'), async (req, res, next) =
     switch (action) {
       case 'change_status': {
         const statusValue = z.nativeEnum(LeadStatus).parse(payload?.status);
+        // Motivo obrigatório também no bulk (req. 14 + caso extremo 7):
+        // um único motivo é aplicado ao lote inteiro.
+        const statusReason = payload?.statusReason
+          ? z.nativeEnum(LeadStatusReason).parse(payload.statusReason)
+          : undefined;
+        const statusReasonNote = payload?.statusReasonNote
+          ? z.string().max(2000).parse(payload.statusReasonNote)
+          : undefined;
+        const isTerminal = TERMINAL_LEAD_STATUSES.includes(statusValue);
+        if (isTerminal) {
+          assertStatusReason(statusValue, statusReason, statusReasonNote);
+        }
         await prisma.lead.updateMany({
           where: { id: { in: ids }, tenantId },
-          data: { status: statusValue },
+          data: isTerminal
+            ? { status: statusValue, statusReason, statusReasonNote: statusReasonNote ?? null }
+            : { status: statusValue, statusReason: null, statusReasonNote: null },
         });
+        // Timeline por lead (req. 15) — lote já é limitado a 500 ids.
+        const reasonLabel = statusReason ? LEAD_STATUS_REASON_LABELS[statusReason] : null;
+        await prisma.interaction
+          .createMany({
+            data: ids.map((leadId) => ({
+              tenantId,
+              leadId,
+              type: 'STATUS_CHANGE' as const,
+              direction: 'OUTBOUND' as const,
+              subject: 'Mudança de status (em massa)',
+              content: `Status alterado para "${statusValue}"${reasonLabel ? `. Motivo: ${reasonLabel}` : ''}${statusReasonNote ? `. Nota: ${statusReasonNote}` : ''}`,
+              userId: req.user!.userId,
+              metadata: {
+                newStatus: statusValue,
+                statusReason: statusReason ?? null,
+                statusReasonNote: statusReasonNote ?? null,
+                bulk: true,
+              },
+            })),
+          })
+          .catch(() => {});
         affected = ids.length;
         break;
       }
@@ -459,6 +523,37 @@ router.post('/:id/ai-chat', aiLimiter, async (req, res, next) => {
   }
 });
 
+// POST /api/leads/:id/convert-to-opportunity — Converter em oportunidade
+// (specs/leads-oportunidade req. 17-18): cria o Deal com os dados copiados e
+// encerra o lead com motivo CONVERTIDO_EM_OPORTUNIDADE. Exige capability de
+// criação de deals (é um deal que nasce aqui).
+router.post('/:id/convert-to-opportunity', async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return next(createError('Authentication required', 401));
+    }
+
+    const eff = await getEffective({
+      userId: req.user.userId,
+      tenantId: req.user.tenantId,
+      role: req.user.role,
+      isPlatformAdmin: req.user.isPlatformAdmin,
+    });
+    if (!eff.entities.deals.create) {
+      return next(createError('Insufficient permissions', 403, 'INSUFFICIENT_PERMISSIONS'));
+    }
+
+    const result = await leadService.convertToOpportunity(
+      req.user.tenantId,
+      req.params.id,
+      req.user.userId
+    );
+    res.status(result.alreadyConverted ? 200 : 201).json({ status: 200, data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // POST /api/leads/:id/convert - Convert lead to contact
 router.post('/:id/convert', async (req, res, next) => {
   try {
@@ -626,7 +721,7 @@ router.put('/:id', async (req, res, next) => {
       where: { id: req.params.id, tenantId: req.user.tenantId },
     });
 
-    const lead = await leadService.update(req.user.tenantId, data);
+    const lead = await leadService.update(req.user.tenantId, data, req.user.userId);
 
     // Fire audit log asynchronously — must not block the response
     if (existing) {

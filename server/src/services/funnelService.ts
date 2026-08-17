@@ -3,38 +3,37 @@ import { LeadStatus, FunnelType } from '@prisma/client';
 import { createError } from '../middleware/errorHandler.js';
 import { assertStageRequiredFieldsFilled } from './dealService.js';
 
+// Régua nova da área comercial (specs/leads-oportunidade-inteligencia-mercado.md req. 33)
 const DEFAULT_COLUMNS = [
-  { title: 'Novo', color: '#3B82F6', order: 0, isDefault: true, mappedStatus: LeadStatus.NEW },
+  { title: 'Novo', color: '#3B82F6', order: 0, isDefault: true, mappedStatus: LeadStatus.NOVO },
   {
-    title: 'Em Contato',
+    title: 'Em Andamento',
     color: '#F59E0B',
     order: 1,
     isDefault: false,
-    mappedStatus: LeadStatus.CONTACTED,
+    mappedStatus: LeadStatus.EM_ANDAMENTO,
   },
   {
-    title: 'Qualificado',
-    color: '#8B5CF6',
+    title: 'Pausado',
+    color: '#6B7280',
     order: 2,
     isDefault: false,
-    mappedStatus: LeadStatus.QUALIFIED,
+    mappedStatus: LeadStatus.PAUSADO,
   },
   {
-    title: 'Proposta',
-    color: '#EC4899',
+    title: 'Cancelado',
+    color: '#EF4444',
     order: 3,
     isDefault: false,
-    mappedStatus: LeadStatus.PROPOSAL,
+    mappedStatus: LeadStatus.CANCELADO,
   },
   {
-    title: 'Negociação',
-    color: '#F97316',
+    title: 'Encerrado',
+    color: '#10B981',
     order: 4,
     isDefault: false,
-    mappedStatus: LeadStatus.NEGOTIATION,
+    mappedStatus: LeadStatus.ENCERRADO,
   },
-  { title: 'Fechado', color: '#10B981', order: 5, isDefault: false, mappedStatus: LeadStatus.WON },
-  { title: 'Perdido', color: '#EF4444', order: 6, isDefault: false, mappedStatus: LeadStatus.LOST },
 ];
 
 const DEFAULT_DEAL_COLUMNS = [

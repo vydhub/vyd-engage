@@ -524,15 +524,24 @@ publicRouter.post('/capture/:tenantSlug', async (req, res, next) => {
 
     const data = captureLeadSchema.parse(req.body);
 
+    // Aceita tanto os slugs antigos do formulário público quanto os novos
+    // valores da régua comercial (specs/leads-oportunidade req. 8).
     const sourceMap: Record<string, string> = {
-      website: 'WEBSITE',
-      social_media: 'SOCIAL_MEDIA',
-      referral: 'REFERRAL',
-      email: 'EMAIL',
-      phone: 'PHONE',
-      other: 'OTHER',
+      website: 'OUTROS',
+      social_media: 'PORTAL_NOTICIAS_LINKEDIN',
+      referral: 'INDICACAO_PARCEIROS',
+      email: 'PROSPECCAO_ATIVA',
+      phone: 'PROSPECCAO_ATIVA',
+      other: 'OUTROS',
+      prospeccao_ativa: 'PROSPECCAO_ATIVA',
+      portal_noticias_linkedin: 'PORTAL_NOTICIAS_LINKEDIN',
+      evento_feira_setorial: 'EVENTO_FEIRA_SETORIAL',
+      networking_pessoal: 'NETWORKING_PESSOAL',
+      cliente_recorrente: 'CLIENTE_RECORRENTE',
+      indicacao_parceiros: 'INDICACAO_PARCEIROS',
+      outros: 'OUTROS',
     };
-    const leadSource = sourceMap[String(data.source || '').toLowerCase()] || 'WEBSITE';
+    const leadSource = sourceMap[String(data.source || '').toLowerCase()] || 'OUTROS';
 
     const lead = await prisma.lead.create({
       data: {
@@ -541,7 +550,7 @@ publicRouter.post('/capture/:tenantSlug', async (req, res, next) => {
         phone: data.phone || null,
         company: data.company || null,
         source: leadSource as any,
-        status: 'NEW',
+        status: 'NOVO',
         customFields: data.customFields || {},
         tenantId: tenant.id,
       },
@@ -671,8 +680,8 @@ publicRouter.post('/schedule/:slug/book', async (req, res, next) => {
         data: {
           name: data.name,
           email: data.email,
-          source: 'OTHER',
-          status: 'NEW',
+          source: 'OUTROS',
+          status: 'NOVO',
           tenantId: avail.user.tenantId,
         },
       });
