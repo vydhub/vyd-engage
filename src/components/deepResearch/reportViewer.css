@@ -553,19 +553,32 @@
 }
 .report-viewer__body th {
   text-align: left;
-  padding: 11px 16px;
+  padding: 11px 12px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--vyd-text-primary);
-  white-space: nowrap;
+  /* O cabeçalho QUEBRA — era `nowrap` e essa era a causa das tabelas cortadas
+     na tela: um título longo ("Tipo de contratação (Spot / EPCM / EPC…)")
+     reservava 334px, roubava a largura das colunas de dados (que caíam para
+     ~100px e quebravam em 4 linhas) e ainda estourava o container (1744px de
+     tabela em 1238px de folga). Com quebra, 5 tabelas que transbordavam passam
+     a caber e as linhas encurtam. Mesma correção que o print já fazia
+     (.report-print th/td, mais abaixo) — a tela é que estava atrasada. */
+  white-space: normal;
+  overflow-wrap: break-word;
+  hyphens: auto;
+  text-wrap: balance;
+  line-height: 1.3;
 }
 .report-viewer__body td {
-  padding: 10px 16px;
+  padding: 10px 12px;
   border-top: 1px solid var(--rv-line-soft);
   color: var(--rv-body);
   vertical-align: top;
+  /* Célula com número/URL longo não empurra a coluna para fora do container. */
+  overflow-wrap: break-word;
 }
 .report-viewer__body tbody tr:nth-child(even) {
   background: var(--vyd-bg-elevated);
