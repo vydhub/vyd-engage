@@ -12,6 +12,7 @@ import { normalizeLeadStatus, normalizeLeadSource } from '../utils/leadLegacy.js
 import {
   TERMINAL_LEAD_STATUSES,
   LEAD_STATUS_REASON_LABELS,
+  LEAD_STATUS_LABELS,
   assertStatusReason,
 } from '../services/leadService.js';
 import { notificationService } from '../services/notificationService.js';
@@ -73,9 +74,23 @@ const createLeadSchema = z.object({
 });
 
 // Edição não força os vínculos (leads legados continuam editáveis — caso 1);
-// quando enviados, o serviço valida a coerência do par final.
+// quando enviados, o serviço valida a coerência do par final. Os campos de
+// oportunidade aceitam NULL explícito para permitir LIMPAR o valor na edição
+// (req. 9 — sem isso, apagar um campo salvava silenciosamente o valor antigo).
 const updateLeadSchema = createLeadSchema.partial().extend({
   id: z.string().uuid(),
+  notes: z.string().nullable().optional(),
+  estimatedValue: z.number().nonnegative().nullable().optional(),
+  estimatedTimeline: z.string().max(500).nullable().optional(),
+  probabilityGoGet: z
+    .number()
+    .int()
+    .refine((v): v is (typeof GO_GET_STEPS)[number] => GO_GET_STEPS.includes(v as any), {
+      message: 'Probabilidade Go×Get deve ser 10, 25, 50, 75 ou 90',
+    })
+    .nullable()
+    .optional(),
+  assignedTo: vazioComoAusente(z.string().uuid().nullable().optional()),
 });
 
 const querySchema = z.object({
@@ -186,6 +201,13 @@ router.patch('/bulk', requirePermission('bulkActions'), async (req, res, next) =
         if (isTerminal) {
           assertStatusReason(statusValue, statusReason, statusReasonNote);
         }
+        // Status atual de cada lead ANTES do update — a timeline registra a
+        // transição real (anterior → novo, req. 15) e leads já no status de
+        // destino não ganham interaction redundante.
+        const currentLeads = await prisma.lead.findMany({
+          where: { id: { in: ids }, tenantId },
+          select: { id: true, status: true },
+        });
         await prisma.lead.updateMany({
           where: { id: { in: ids }, tenantId },
           data: isTerminal
@@ -194,17 +216,19 @@ router.patch('/bulk', requirePermission('bulkActions'), async (req, res, next) =
         });
         // Timeline por lead (req. 15) — lote já é limitado a 500 ids.
         const reasonLabel = statusReason ? LEAD_STATUS_REASON_LABELS[statusReason] : null;
+        const changedLeads = currentLeads.filter((l) => l.status !== statusValue);
         await prisma.interaction
           .createMany({
-            data: ids.map((leadId) => ({
+            data: changedLeads.map((l) => ({
               tenantId,
-              leadId,
+              leadId: l.id,
               type: 'STATUS_CHANGE' as const,
               direction: 'OUTBOUND' as const,
               subject: 'Mudança de status (em massa)',
-              content: `Status alterado para "${statusValue}"${reasonLabel ? `. Motivo: ${reasonLabel}` : ''}${statusReasonNote ? `. Nota: ${statusReasonNote}` : ''}`,
+              content: `Status alterado de "${LEAD_STATUS_LABELS[l.status]}" para "${LEAD_STATUS_LABELS[statusValue]}"${reasonLabel ? `. Motivo: ${reasonLabel}` : ''}${statusReasonNote ? `. Nota: ${statusReasonNote}` : ''}`,
               userId: req.user!.userId,
               metadata: {
+                previousStatus: l.status,
                 newStatus: statusValue,
                 statusReason: statusReason ?? null,
                 statusReasonNote: statusReasonNote ?? null,

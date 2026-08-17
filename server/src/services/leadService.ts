@@ -29,8 +29,15 @@ export interface CreateLeadData {
   tagIds?: string[];
 }
 
-export interface UpdateLeadData extends Partial<CreateLeadData> {
+export interface UpdateLeadData
+  extends Partial<Omit<CreateLeadData, 'notes' | 'estimatedValue' | 'estimatedTimeline' | 'probabilityGoGet' | 'assignedTo'>> {
   id: string;
+  // Null explícito = LIMPAR o campo na edição (req. 9). undefined = não tocar.
+  notes?: string | null;
+  estimatedValue?: number | null;
+  estimatedTimeline?: string | null;
+  probabilityGoGet?: number | null;
+  assignedTo?: string | null;
 }
 
 /** Status terminais: transição para eles exige motivo (spec req. 13). */
@@ -54,7 +61,7 @@ export const LEAD_STATUS_REASON_LABELS: Record<LeadStatusReason, string> = {
   OUTRO: 'Outro',
 };
 
-const LEAD_STATUS_LABELS: Record<LeadStatus, string> = {
+export const LEAD_STATUS_LABELS: Record<LeadStatus, string> = {
   NOVO: 'Novo',
   EM_ANDAMENTO: 'Em Andamento',
   PAUSADO: 'Pausado',
@@ -363,11 +370,19 @@ export const leadService = {
     }
 
     if (filters?.search) {
+      // Régua nova (req. 20): email/phone são dados do CONTATO — a busca só os
+      // considera em registros isContact=true. Para o lead-oportunidade, a
+      // busca cobre nome, empresa (texto legado + vinculada) e o contato
+      // vinculado (nome/e-mail).
+      const contains = { contains: filters.search, mode: 'insensitive' as const };
       where.OR = [
-        { name: { contains: filters.search, mode: 'insensitive' } },
-        { email: { contains: filters.search, mode: 'insensitive' } },
-        { phone: { contains: filters.search, mode: 'insensitive' } },
-        { company: { contains: filters.search, mode: 'insensitive' } },
+        { name: contains },
+        { company: contains },
+        { companyRef: { name: contains } },
+        { contactRef: { name: contains } },
+        { contactRef: { email: contains } },
+        { AND: [{ isContact: true }, { email: contains }] },
+        { AND: [{ isContact: true }, { phone: contains }] },
       ];
     }
 

@@ -22,6 +22,19 @@ function vazioComoAusente(v: unknown): string | undefined {
 }
 
 /**
+ * Semântica de EDIÇÃO (spec req. 9): campo limpo na tela vira NULL explícito no
+ * PUT — o backend grava a limpeza. `undefined` continua significando "não tocar".
+ * (Na criação, vazio segue como ausente — vazioComoAusente.)
+ */
+function vazioComoNull(v: unknown): string | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  if (typeof v !== 'string') return v as string | undefined;
+  const t = v.trim();
+  return t === '' ? null : t;
+}
+
+/**
  * Normaliza as tags para o formato que o backend valida: `tagIds` é
  * `z.array(z.string().uuid())` — array de STRINGS (server/src/routes/leads.ts).
  *
@@ -275,15 +288,19 @@ export function useLeads() {
           source: data.source || undefined,
           statusReason: data.statusReason || undefined,
           statusReasonNote: vazioComoAusente(data.statusReasonNote ?? undefined),
+          // Limpeza explícita (req. 9): campo esvaziado vai como null no PUT
           estimatedValue:
-            data.estimatedValue !== undefined && data.estimatedValue !== null
-              ? Number(data.estimatedValue)
-              : undefined,
-          estimatedTimeline: vazioComoAusente(data.estimatedTimeline ?? undefined),
-          probabilityGoGet: data.probabilityGoGet ?? undefined,
+            data.estimatedValue === undefined
+              ? undefined
+              : data.estimatedValue === null || String(data.estimatedValue).trim() === ''
+                ? null
+                : Number(data.estimatedValue),
+          estimatedTimeline: vazioComoNull(data.estimatedTimeline),
+          probabilityGoGet:
+            data.probabilityGoGet === undefined ? undefined : data.probabilityGoGet,
           customFields: data.customFields,
-          notes: vazioComoAusente(data.notes),
-          assignedTo: vazioComoAusente(data.assignedTo),
+          notes: vazioComoNull(data.notes),
+          assignedTo: vazioComoNull(data.assignedTo),
           tagIds: toTagIds(data.tags),
         });
         const updatedLead = transformLead(result as unknown as ApiLead);

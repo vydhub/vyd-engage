@@ -23,6 +23,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { useDebounce } from '../../hooks/useDebounce';
+import { usePermissions } from '../../hooks/usePermissions';
 import { apiClient, ApiError } from '../../services/api/client';
 import { cn } from '../ui/utils';
 
@@ -70,6 +71,9 @@ export function ContactQuickSelect({
   disabled = false,
   id,
 }: ContactQuickSelectProps) {
+  // Caso extremo 4: o item "+ Criar" só aparece com entities.leads.create
+  const { canEntity } = usePermissions();
+  const podeCriarContato = canEntity('leads', 'create');
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [busca, setBusca] = useState('');
@@ -222,10 +226,14 @@ export function ContactQuickSelect({
               )}
 
               <CommandGroup>
-                <CommandItem value="__criar__" onSelect={abrirCriacao}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  <span>Criar novo contato{busca.trim() ? ` "${busca.trim()}"` : ''}</span>
-                </CommandItem>
+                {/* Caso extremo 4: sem entities.leads.create o item some;
+                    o combobox continua funcionando para seleção. */}
+                {podeCriarContato && (
+                  <CommandItem value="__criar__" onSelect={abrirCriacao}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    <span>Criar novo contato{busca.trim() ? ` "${busca.trim()}"` : ''}</span>
+                  </CommandItem>
+                )}
                 {contatos.map((contato) => (
                   <CommandItem key={contato.id} value={contato.id} onSelect={() => escolher(contato)}>
                     <Check

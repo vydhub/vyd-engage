@@ -24,6 +24,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { useDebounce } from '../../hooks/useDebounce';
+import { usePermissions } from '../../hooks/usePermissions';
 import { apiClient, ApiError } from '../../services/api/client';
 import { cn } from '../ui/utils';
 
@@ -65,6 +66,9 @@ export function CompanyQuickSelect({ value, onChange, disabled = false, id }: Co
   const [open, setOpen] = useState(false);
   const [busca, setBusca] = useState('');
   const buscaDebounced = useDebounce(busca, 300);
+  // Caso extremo 4: o item "+ Criar" só aparece com entities.companies.create
+  const { canEntity } = usePermissions();
+  const podeCriarEmpresa = canEntity('companies', 'create');
 
   // Mini-dialog de criação
   const [dialogAberto, setDialogAberto] = useState(false);
@@ -239,10 +243,14 @@ export function CompanyQuickSelect({ value, onChange, disabled = false, id }: Co
               )}
 
               <CommandGroup>
-                <CommandItem value="__criar__" onSelect={abrirCriacao}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  <span>Criar nova empresa{busca.trim() ? ` "${busca.trim()}"` : ''}</span>
-                </CommandItem>
+                {/* Caso extremo 4: sem entities.companies.create o item some;
+                    o combobox continua funcionando para seleção. */}
+                {podeCriarEmpresa && (
+                  <CommandItem value="__criar__" onSelect={abrirCriacao}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    <span>Criar nova empresa{busca.trim() ? ` "${busca.trim()}"` : ''}</span>
+                  </CommandItem>
+                )}
                 {empresas.map((empresa) => (
                   <CommandItem key={empresa.id} value={empresa.id} onSelect={() => escolher(empresa)}>
                     <Check

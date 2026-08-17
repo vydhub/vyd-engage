@@ -5,7 +5,7 @@ import { authenticate, requireManagerForWrites } from '../middleware/auth.js';
 import { tenantScope } from '../middleware/tenant.js';
 import { createError } from '../middleware/errorHandler.js';
 import { visibilityScope } from '../services/permissionService.js';
-import { LeadStatus, FunnelType } from '@prisma/client';
+import { LeadStatus, LeadStatusReason, FunnelType } from '@prisma/client';
 
 const router = Router();
 
@@ -60,6 +60,10 @@ const moveLeadSchema = z.object({
   leadId: z.string().uuid(),
   targetColumnId: z.string().uuid(),
   position: z.number().int().min(0).default(0),
+  // Motivo da transição quando a coluna de destino mapeia status terminal
+  // (specs/leads-oportunidade req. 14) — validado no funnelService.
+  statusReason: z.nativeEnum(LeadStatusReason).optional(),
+  statusReasonNote: z.string().max(2000).optional(),
 });
 
 const moveDealSchema = z.object({
@@ -242,7 +246,12 @@ router.post('/move-lead', async (req, res, next) => {
       data.leadId,
       data.targetColumnId,
       data.position,
-      await visibilityScope(req.user, 'deals')
+      await visibilityScope(req.user, 'deals'),
+      {
+        statusReason: data.statusReason,
+        statusReasonNote: data.statusReasonNote,
+        userId: req.user.userId,
+      }
     );
     res.json({ status: 200, data: lead });
   } catch (error) {

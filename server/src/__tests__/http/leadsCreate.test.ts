@@ -248,6 +248,93 @@ describe('POST /api/v1/leads — o payload que a tela envia', () => {
     expect(res.body.error).toContain('não pertence à empresa');
   });
 
+  // ── Bulk com motivo obrigatório (req. 14 + caso extremo 7) ────────────────
+
+  function patchBulk(body: Record<string, unknown>) {
+    const token = generateAccessToken({
+      userId: user.id,
+      tenantId: tenant.id,
+      email: user.email,
+      role: user.role,
+    });
+    return request(app)
+      .patch('/api/v1/leads/bulk')
+      .set('Cookie', [`accessToken=${token}`, `csrf-token=${CSRF}`])
+      .set('x-csrf-token', CSRF)
+      .send(body);
+  }
+
+  const BULK_IDS = [
+    '44444444-4444-4444-8444-444444444444',
+    '55555555-5555-4555-8555-555555555555',
+  ];
+
+  it('bulk change_status para terminal SEM motivo devolve 400', async () => {
+    prismaMock.lead.count.mockResolvedValue(BULK_IDS.length);
+
+    const res = await patchBulk({
+      ids: BULK_IDS,
+      action: 'change_status',
+      payload: { status: 'CANCELADO' },
+    });
+
+    expect(res.status).toBe(400);
+    expect(prismaMock.lead.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('bulk change_status com motivo aplica o lote e gera Interaction com status anterior', async () => {
+    prismaMock.lead.count.mockResolvedValue(BULK_IDS.length);
+    prismaMock.lead.findMany.mockResolvedValue([
+      { id: BULK_IDS[0], status: 'EM_ANDAMENTO' },
+      { id: BULK_IDS[1], status: 'CANCELADO' }, // já no destino — sem interaction
+    ] as never);
+    prismaMock.lead.updateMany.mockResolvedValue({ count: 2 } as never);
+    prismaMock.interaction.createMany.mockResolvedValue({ count: 1 } as never);
+
+    const res = await patchBulk({
+      ids: BULK_IDS,
+      action: 'change_status',
+      payload: { status: 'CANCELADO', statusReason: 'SEM_RETORNO' },
+    });
+
+    expect(res.status).toBe(200);
+    const updateArgs = (prismaMock.lead.updateMany as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls[0][0] as { data: Record<string, unknown> };
+    expect(updateArgs.data.status).toBe('CANCELADO');
+    expect(updateArgs.data.statusReason).toBe('SEM_RETORNO');
+
+    const cmArgs = (
+      prismaMock.interaction.createMany as unknown as { mock: { calls: unknown[][] } }
+    ).mock.calls[0][0] as { data: Array<{ leadId: string; content: string; metadata: any }> };
+    // Só o lead que realmente mudou de status ganha interaction (req. 15)
+    expect(cmArgs.data).toHaveLength(1);
+    expect(cmArgs.data[0].leadId).toBe(BULK_IDS[0]);
+    expect(cmArgs.data[0].content).toContain('Em Andamento');
+    expect(cmArgs.data[0].content).toContain('Cancelado');
+    expect(cmArgs.data[0].metadata.previousStatus).toBe('EM_ANDAMENTO');
+  });
+
+  it('bulk change_status para NÃO-terminal limpa o motivo do lote', async () => {
+    prismaMock.lead.count.mockResolvedValue(1);
+    prismaMock.lead.findMany.mockResolvedValue([
+      { id: BULK_IDS[0], status: 'PAUSADO' },
+    ] as never);
+    prismaMock.lead.updateMany.mockResolvedValue({ count: 1 } as never);
+    prismaMock.interaction.createMany.mockResolvedValue({ count: 1 } as never);
+
+    const res = await patchBulk({
+      ids: [BULK_IDS[0]],
+      action: 'change_status',
+      payload: { status: 'EM_ANDAMENTO' },
+    });
+
+    expect(res.status).toBe(200);
+    const updateArgs = (prismaMock.lead.updateMany as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls[0][0] as { data: Record<string, unknown> };
+    expect(updateArgs.data.statusReason).toBeNull();
+    expect(updateArgs.data.statusReasonNote).toBeNull();
+  });
+
   it('contato que NÃO é contato (isContact=false) devolve 404 CONTACT_NOT_FOUND', async () => {
     prismaMock.lead.findFirst.mockImplementation(((args: { where?: { id?: string } }) => {
       if (args?.where?.id === CONTACT_ID) {

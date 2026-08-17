@@ -162,7 +162,9 @@ export function opportunityValuesToLeadPayload(values: LeadOpportunityValues): P
     estimatedValue: parseCurrencyBRL(values.estimatedValue),
     estimatedTimeline: values.estimatedTimeline,
     probabilityGoGet: values.probabilityGoGet,
-    assignedTo: values.assignedTo || undefined,
+    // '' aqui significa "Nenhum" selecionado — na EDIÇÃO o useLeads converte em
+    // null explícito para LIMPAR o responsável (req. 9); na criação vira ausente.
+    assignedTo: values.assignedTo,
     statusReason: terminal && values.statusReason ? values.statusReason : undefined,
     statusReasonNote:
       terminal && values.statusReasonNote.trim() ? values.statusReasonNote.trim() : undefined,

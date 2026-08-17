@@ -813,10 +813,15 @@ export function Pipeline() {
                           <LeadSourceBadge source={lead.source} />
                         </div>
 
-                        {lead.company && (
+                        {(lead.companyRef?.name || lead.company) && (
                           <div className="flex items-center gap-2 text-sm text-gray-600 mb-3">
                             <Building2 size={14} className="flex-shrink-0" />
-                            <span className="truncate">{lead.company}</span>
+                            <span className="truncate">
+                              {lead.companyRef?.name || lead.company}
+                            </span>
+                            {!lead.companyRef && (
+                              <span className="text-xs text-gray-500">(pendente)</span>
+                            )}
                           </div>
                         )}
 

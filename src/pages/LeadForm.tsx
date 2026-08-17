@@ -4,7 +4,6 @@ import { Header } from '../components/Header';
 import { Button } from '../components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { ArrowLeft } from 'lucide-react';
-import { InteractionTimeline } from '../components/InteractionTimeline';
 import { apiClient } from '../services/api/client';
 import { useNotifications } from '../contexts/NotificationContext';
 import { Lead } from '../types';
@@ -38,7 +37,7 @@ export function LeadForm() {
   const [values, setValues] = useState<LeadOpportunityValues>(emptyLeadOpportunityValues());
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- shape legado consumido pelo InteractionTimeline
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- shape cru da API de interações
   const [interactions, setInteractions] = useState<any[]>([]);
 
   useEffect(() => {
@@ -81,34 +80,6 @@ export function LeadForm() {
       cancelled = true;
     };
   }, [id]);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- shape legado do InteractionTimeline
-  const handleAddInteraction = async (interactionData: any) => {
-    if (!lead?.id) return;
-    try {
-      const newInteraction = await apiClient.createInteraction({
-        leadId: String(lead.id),
-        type: interactionData.type,
-        content: interactionData.content,
-        metadata: interactionData.metadata,
-      });
-      setInteractions([newInteraction, ...interactions]);
-    } catch (error) {
-      console.error('Erro ao criar interação:', error);
-      toast.error('Erro ao criar interação');
-    }
-  };
-
-  const handleDeleteInteraction = async (interactionId: string) => {
-    if (!lead?.id) return;
-    try {
-      await apiClient.deleteInteraction(interactionId);
-      setInteractions(interactions.filter((i) => i.id !== interactionId));
-    } catch (error) {
-      console.error('Erro ao deletar interação:', error);
-      toast.error('Erro ao deletar interação');
-    }
-  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -219,16 +190,45 @@ export function LeadForm() {
 
               <TabsContent value="activity" className="mt-0 outline-none relative">
                 {lead?.id ? (
-                  <InteractionTimeline
-                    // leadId tipado como number no componente legado, mas em runtime sempre foi o UUID string
-                    leadId={lead.id as unknown as number}
-                    interactions={interactions}
-                    onDelete={handleDeleteInteraction}
-                    onAdd={handleAddInteraction}
-                  />
+                  // Timeline compacta (leitura). O fluxo completo de atividades
+                  // (Reunião/Ligação/Tarefa — spec req. 35) vive no detalhe do
+                  // lead; o InteractionTimeline legado foi descontinuado.
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-medium text-gray-900">Histórico de atividades</h3>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => navigate(`/app/leads/${lead.id}`)}
+                      >
+                        Registrar atividades no detalhe
+                      </Button>
+                    </div>
+                    {interactions.length === 0 ? (
+                      <div className="text-center py-8 text-gray-600">
+                        <p className="text-sm">Nenhuma atividade registrada ainda.</p>
+                      </div>
+                    ) : (
+                      <ul className="space-y-3">
+                        {interactions.slice(0, 20).map((i) => (
+                          <li key={i.id} className="border rounded-lg p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-medium text-gray-900 truncate">
+                                {i.subject || i.type}
+                              </span>
+                              <span className="text-xs text-gray-600 shrink-0">
+                                {new Date(i.occurredAt || i.createdAt).toLocaleDateString('pt-BR')}
+                              </span>
+                            </div>
+                            <p className="text-sm text-gray-600 mt-1 line-clamp-2">{i.content}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 ) : (
                   <div className="text-center py-12 text-gray-600">
-                    <p>Salve o lead para ver o histórico de interações</p>
+                    <p>Salve o lead para ver o histórico de atividades</p>
                   </div>
                 )}
               </TabsContent>
