@@ -7,6 +7,8 @@ export interface FunnelLead {
   email: string;
   phone: string;
   company?: string;
+  /** Empresa vinculada (régua nova) — o texto livre `company` é fallback legado */
+  companyRef?: { id: string; name: string } | null;
   score: number;
   source: string;
   status: string;

@@ -1,40 +1,45 @@
 import prisma from '../config/database.js';
-import { LeadStatus, FunnelType } from '@prisma/client';
+import { LeadStatus, LeadStatusReason, FunnelType } from '@prisma/client';
 import { createError } from '../middleware/errorHandler.js';
 import { assertStageRequiredFieldsFilled } from './dealService.js';
+import {
+  TERMINAL_LEAD_STATUSES,
+  LEAD_STATUS_REASON_LABELS,
+  LEAD_STATUS_LABELS,
+  assertStatusReason,
+} from './leadService.js';
 
+// Régua nova da área comercial (specs/leads-oportunidade-inteligencia-mercado.md req. 33)
 const DEFAULT_COLUMNS = [
-  { title: 'Novo', color: '#3B82F6', order: 0, isDefault: true, mappedStatus: LeadStatus.NEW },
+  { title: 'Novo', color: '#3B82F6', order: 0, isDefault: true, mappedStatus: LeadStatus.NOVO },
   {
-    title: 'Em Contato',
+    title: 'Em Andamento',
     color: '#F59E0B',
     order: 1,
     isDefault: false,
-    mappedStatus: LeadStatus.CONTACTED,
+    mappedStatus: LeadStatus.EM_ANDAMENTO,
   },
   {
-    title: 'Qualificado',
-    color: '#8B5CF6',
+    title: 'Pausado',
+    color: '#6B7280',
     order: 2,
     isDefault: false,
-    mappedStatus: LeadStatus.QUALIFIED,
+    mappedStatus: LeadStatus.PAUSADO,
   },
   {
-    title: 'Proposta',
-    color: '#EC4899',
+    title: 'Cancelado',
+    color: '#EF4444',
     order: 3,
     isDefault: false,
-    mappedStatus: LeadStatus.PROPOSAL,
+    mappedStatus: LeadStatus.CANCELADO,
   },
   {
-    title: 'Negociação',
-    color: '#F97316',
+    title: 'Encerrado',
+    color: '#10B981',
     order: 4,
     isDefault: false,
-    mappedStatus: LeadStatus.NEGOTIATION,
+    mappedStatus: LeadStatus.ENCERRADO,
   },
-  { title: 'Fechado', color: '#10B981', order: 5, isDefault: false, mappedStatus: LeadStatus.WON },
-  { title: 'Perdido', color: '#EF4444', order: 6, isDefault: false, mappedStatus: LeadStatus.LOST },
 ];
 
 const DEFAULT_DEAL_COLUMNS = [
@@ -108,6 +113,9 @@ export const funnelService = {
               orderBy: { positionInColumn: 'asc' },
               include: {
                 tags: { include: { tag: true } },
+                // Empresa vinculada no card do Kanban (req. 21): leads novos só
+                // têm companyRef; o texto livre é fallback legado.
+                companyRef: { select: { id: true, name: true } },
               },
             },
             deals: {
@@ -399,7 +407,12 @@ export const funnelService = {
     leadId: string,
     targetColumnId: string,
     position: number,
-    ownerId?: string | { in: string[] }
+    ownerId?: string | { in: string[] },
+    // Motivo da transição quando a coluna de destino mapeia um status TERMINAL
+    // (specs/leads-oportunidade reqs. 14-16): exigido também neste caminho de
+    // API — a UI do Pipeline grava o motivo via PUT antes do move, mas chamadas
+    // diretas ao move-lead não podem contornar a regra.
+    reason?: { statusReason?: LeadStatusReason; statusReasonNote?: string; userId?: string }
   ) {
     // Posse (reqs 6/8/14): analista (USER) só move os próprios; equipe ({in}) move
     // os do time; não-dono → 404. undefined → sem filtro (manager).
@@ -425,9 +438,28 @@ export const funnelService = {
       positionInColumn: position,
     };
 
-    // If column has a mapped status, update lead status too
+    // If column has a mapped status, update lead status too.
+    // O ciclo do motivo acompanha o status (reqs. 13-16), também no Kanban:
+    // transição para terminal exige motivo (400 sem ele); voltar para
+    // NOVO/EM_ANDAMENTO limpa motivo/nota obsoletos.
+    const statusChanged =
+      targetColumn.mappedStatus !== null && targetColumn.mappedStatus !== lead.status;
     if (targetColumn.mappedStatus) {
       updateData.status = targetColumn.mappedStatus;
+      if (statusChanged) {
+        if (TERMINAL_LEAD_STATUSES.includes(targetColumn.mappedStatus)) {
+          assertStatusReason(
+            targetColumn.mappedStatus,
+            reason?.statusReason,
+            reason?.statusReasonNote
+          );
+          updateData.statusReason = reason!.statusReason;
+          updateData.statusReasonNote = reason?.statusReasonNote ?? null;
+        } else {
+          updateData.statusReason = null;
+          updateData.statusReasonNote = null;
+        }
+      }
     }
 
     const updatedLead = await prisma.lead.update({
@@ -437,6 +469,34 @@ export const funnelService = {
         tags: { include: { tag: true } },
       },
     });
+
+    // Timeline (req. 15): transição terminal COM motivo feita por este caminho
+    // gera a Interaction aqui. (No fluxo da UI o PUT grava o motivo antes e o
+    // move não vê transição — sem duplicata.)
+    if (statusChanged && updateData.statusReason) {
+      const reasonLabel =
+        LEAD_STATUS_REASON_LABELS[updateData.statusReason as LeadStatusReason];
+      await prisma.interaction
+        .create({
+          data: {
+            tenantId,
+            leadId,
+            type: 'STATUS_CHANGE',
+            direction: 'OUTBOUND',
+            subject: 'Mudança de status',
+            content: `Status alterado de "${LEAD_STATUS_LABELS[lead.status]}" para "${LEAD_STATUS_LABELS[targetColumn.mappedStatus as LeadStatus]}". Motivo: ${reasonLabel}${updateData.statusReasonNote ? `. Nota: ${updateData.statusReasonNote}` : ''}`,
+            userId: reason?.userId,
+            metadata: {
+              previousStatus: lead.status,
+              newStatus: targetColumn.mappedStatus,
+              statusReason: updateData.statusReason,
+              statusReasonNote: updateData.statusReasonNote ?? null,
+              via: 'kanban_move',
+            },
+          },
+        })
+        .catch(() => {});
+    }
 
     // Reorder other leads in target column
     const leadsInColumn = await prisma.lead.findMany({

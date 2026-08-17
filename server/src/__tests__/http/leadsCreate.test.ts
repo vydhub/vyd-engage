@@ -64,6 +64,16 @@ const CSRF = 'token-csrf-de-teste';
 const tenant = tenantFactory.build();
 const user = userFactory.build({ tenantId: tenant.id, role: 'GESTOR', status: 'ACTIVE' });
 
+// Vínculos obrigatórios da criação manual (specs/leads-oportunidade req. 1):
+// empresa e contato válidos, mockados no beforeEach.
+const COMPANY_ID = '11111111-1111-4111-8111-111111111111';
+const CONTACT_ID = '22222222-2222-4222-8222-222222222222';
+
+/** Payload mínimo válido da tela nova (empresa + contato sempre presentes). */
+function comVinculos(body: Record<string, unknown> = {}) {
+  return { companyId: COMPANY_ID, contactId: CONTACT_ID, ...body };
+}
+
 /** Requisição autenticada com CSRF, como o navegador faz. */
 function postLead(body: Record<string, unknown>) {
   const token = generateAccessToken({
@@ -110,9 +120,24 @@ beforeEach(() => {
   prismaMock.emailConfig.count.mockResolvedValue(0);
   const leadCriado = leadFactory.build({ tenantId: tenant.id });
   prismaMock.lead.create.mockResolvedValue(leadCriado);
-  // `leadService.create` relê o registro (findById) para devolver com os includes
-  // — sem isto o serviço lança LEAD_NOT_FOUND e a rota responde 404.
-  prismaMock.lead.findFirst.mockResolvedValue(leadCriado);
+  // Empresa do vínculo obrigatório (assertOpportunityLinks)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  prismaMock.company.findFirst.mockResolvedValue({ id: COMPANY_ID } as any);
+  // `lead.findFirst` atende DOIS chamadores: a validação do CONTATO
+  // (assertOpportunityLinks — where.id === CONTACT_ID) e o re-read do
+  // `leadService.findById` — sem este último o serviço lança LEAD_NOT_FOUND e a
+  // rota responde 404.
+  prismaMock.lead.findFirst.mockImplementation(((args: { where?: { id?: string } }) => {
+    if (args?.where?.id === CONTACT_ID) {
+      return Promise.resolve({
+        id: CONTACT_ID,
+        isContact: true,
+        companyId: COMPANY_ID,
+      });
+    }
+    return Promise.resolve(leadCriado);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  }) as any);
   prismaMock.lead.findUnique.mockResolvedValue(leadCriado);
   prismaMock.leadTag.create.mockResolvedValue({} as never);
   prismaMock.interaction.create.mockResolvedValue({} as never);
@@ -122,15 +147,19 @@ beforeEach(() => {
 describe('POST /api/v1/leads — o payload que a tela envia', () => {
   it('cria o lead com o payload REAL da tela (sem e-mail, sem tags)', async () => {
     // Exatamente o que useLeads.createLead monta quando o usuário preenche só
-    // o nome — o caso que quebrou em produção.
-    const res = await postLead({
-      name: 'Lead pela tela',
-      status: 'NEW',
-      source: 'OTHER',
-      score: 0,
-      customFields: { 'campo-livre': 'valor' },
-      tagIds: [],
-    });
+    // o nome e os vínculos obrigatórios — o caso que quebrou em produção.
+    const res = await postLead(
+      comVinculos({
+        name: 'Lead pela tela',
+        status: 'NOVO',
+        source: 'OUTROS',
+        estimatedValue: 150000,
+        estimatedTimeline: '2º semestre de 2026',
+        probabilityGoGet: 50,
+        customFields: {},
+        tagIds: [],
+      })
+    );
 
     expect(res.status).toBe(201);
     expect(prismaMock.lead.create).toHaveBeenCalled();
@@ -138,7 +167,7 @@ describe('POST /api/v1/leads — o payload que a tela envia', () => {
 
   it('plano ilimitado (-1) NÃO bloqueia — regressão do 403', async () => {
     prismaMock.lead.count.mockResolvedValue(999999);
-    const res = await postLead({ name: 'Com plano ilimitado' });
+    const res = await postLead(comVinculos({ name: 'Com plano ilimitado' }));
 
     expect(res.status).toBe(201);
     expect(res.body.error).toBeUndefined();
@@ -152,40 +181,172 @@ describe('POST /api/v1/leads — o payload que a tela envia', () => {
     } as any);
     prismaMock.lead.count.mockResolvedValue(10);
 
-    const res = await postLead({ name: 'Estourou o plano' });
+    const res = await postLead(comVinculos({ name: 'Estourou o plano' }));
     expect(res.status).toBe(403);
   });
 
   it('e-mail VAZIO é aceito como não informado — regressão do 400', async () => {
-    const res = await postLead({ name: 'Sem e-mail', email: '', phone: '' });
+    const res = await postLead(comVinculos({ name: 'Sem e-mail', email: '', phone: '' }));
     expect(res.status).toBe(201);
   });
 
   it('e-mail INVÁLIDO segue rejeitado com 400', async () => {
-    const res = await postLead({ name: 'E-mail ruim', email: 'nao-e-email' });
+    const res = await postLead(comVinculos({ name: 'E-mail ruim', email: 'nao-e-email' }));
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('Validation error');
   });
 
   it('tagIds como ARRAY DE STRINGS é aceito — o formato que o backend valida', async () => {
-    const res = await postLead({
-      name: 'Com tags',
-      tagIds: ['11111111-1111-4111-8111-111111111111'],
-    });
+    const res = await postLead(
+      comVinculos({
+        name: 'Com tags',
+        tagIds: ['33333333-3333-4333-8333-333333333333'],
+      })
+    );
     expect(res.status).toBe(201);
   });
 
   it('tagIds como objetos [{id}] é rejeitado — regressão que quebrou a tela', async () => {
-    const res = await postLead({
-      name: 'Tags no formato errado',
-      tagIds: [{ id: '11111111-1111-4111-8111-111111111111' }],
-    });
+    const res = await postLead(
+      comVinculos({
+        name: 'Tags no formato errado',
+        tagIds: [{ id: '33333333-3333-4333-8333-333333333333' }],
+      })
+    );
     expect(res.status).toBe(400);
   });
 
-  it('nome ausente continua sendo 400 (a única obrigatoriedade real)', async () => {
-    const res = await postLead({ email: 'alguem@k2mais.com.br' });
+  it('nome ausente continua sendo 400', async () => {
+    const res = await postLead(comVinculos({ email: 'alguem@k2mais.com.br' }));
     expect(res.status).toBe(400);
+  });
+
+  // ── Vínculos obrigatórios (spec reqs. 1-2) ────────────────────────────────
+
+  it('SEM companyId/contactId a criação manual devolve 400 (req. 1)', async () => {
+    const res = await postLead({ name: 'Sem vínculos' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Validation error');
+  });
+
+  it('contato de OUTRA empresa devolve 400 CONTACT_COMPANY_MISMATCH (req. 2)', async () => {
+    prismaMock.lead.findFirst.mockImplementation(((args: { where?: { id?: string } }) => {
+      if (args?.where?.id === CONTACT_ID) {
+        return Promise.resolve({
+          id: CONTACT_ID,
+          isContact: true,
+          companyId: '99999999-9999-4999-8999-999999999999', // outra empresa
+        });
+      }
+      return Promise.resolve(leadFactory.build({ tenantId: tenant.id }));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }) as any);
+
+    const res = await postLead(comVinculos({ name: 'Contato de outra empresa' }));
+    expect(res.status).toBe(400);
+    // errorHandler expõe só a mensagem (code fica no objeto de erro interno)
+    expect(res.body.error).toContain('não pertence à empresa');
+  });
+
+  // ── Bulk com motivo obrigatório (req. 14 + caso extremo 7) ────────────────
+
+  function patchBulk(body: Record<string, unknown>) {
+    const token = generateAccessToken({
+      userId: user.id,
+      tenantId: tenant.id,
+      email: user.email,
+      role: user.role,
+    });
+    return request(app)
+      .patch('/api/v1/leads/bulk')
+      .set('Cookie', [`accessToken=${token}`, `csrf-token=${CSRF}`])
+      .set('x-csrf-token', CSRF)
+      .send(body);
+  }
+
+  const BULK_IDS = [
+    '44444444-4444-4444-8444-444444444444',
+    '55555555-5555-4555-8555-555555555555',
+  ];
+
+  it('bulk change_status para terminal SEM motivo devolve 400', async () => {
+    prismaMock.lead.count.mockResolvedValue(BULK_IDS.length);
+
+    const res = await patchBulk({
+      ids: BULK_IDS,
+      action: 'change_status',
+      payload: { status: 'CANCELADO' },
+    });
+
+    expect(res.status).toBe(400);
+    expect(prismaMock.lead.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('bulk change_status com motivo aplica o lote e gera Interaction com status anterior', async () => {
+    prismaMock.lead.count.mockResolvedValue(BULK_IDS.length);
+    prismaMock.lead.findMany.mockResolvedValue([
+      { id: BULK_IDS[0], status: 'EM_ANDAMENTO' },
+      { id: BULK_IDS[1], status: 'CANCELADO' }, // já no destino — sem interaction
+    ] as never);
+    prismaMock.lead.updateMany.mockResolvedValue({ count: 2 } as never);
+    prismaMock.interaction.createMany.mockResolvedValue({ count: 1 } as never);
+
+    const res = await patchBulk({
+      ids: BULK_IDS,
+      action: 'change_status',
+      payload: { status: 'CANCELADO', statusReason: 'SEM_RETORNO' },
+    });
+
+    expect(res.status).toBe(200);
+    const updateArgs = (prismaMock.lead.updateMany as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls[0][0] as { data: Record<string, unknown> };
+    expect(updateArgs.data.status).toBe('CANCELADO');
+    expect(updateArgs.data.statusReason).toBe('SEM_RETORNO');
+
+    const cmArgs = (
+      prismaMock.interaction.createMany as unknown as { mock: { calls: unknown[][] } }
+    ).mock.calls[0][0] as { data: Array<{ leadId: string; content: string; metadata: any }> };
+    // Só o lead que realmente mudou de status ganha interaction (req. 15)
+    expect(cmArgs.data).toHaveLength(1);
+    expect(cmArgs.data[0].leadId).toBe(BULK_IDS[0]);
+    expect(cmArgs.data[0].content).toContain('Em Andamento');
+    expect(cmArgs.data[0].content).toContain('Cancelado');
+    expect(cmArgs.data[0].metadata.previousStatus).toBe('EM_ANDAMENTO');
+  });
+
+  it('bulk change_status para NÃO-terminal limpa o motivo do lote', async () => {
+    prismaMock.lead.count.mockResolvedValue(1);
+    prismaMock.lead.findMany.mockResolvedValue([
+      { id: BULK_IDS[0], status: 'PAUSADO' },
+    ] as never);
+    prismaMock.lead.updateMany.mockResolvedValue({ count: 1 } as never);
+    prismaMock.interaction.createMany.mockResolvedValue({ count: 1 } as never);
+
+    const res = await patchBulk({
+      ids: [BULK_IDS[0]],
+      action: 'change_status',
+      payload: { status: 'EM_ANDAMENTO' },
+    });
+
+    expect(res.status).toBe(200);
+    const updateArgs = (prismaMock.lead.updateMany as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls[0][0] as { data: Record<string, unknown> };
+    expect(updateArgs.data.statusReason).toBeNull();
+    expect(updateArgs.data.statusReasonNote).toBeNull();
+  });
+
+  it('contato que NÃO é contato (isContact=false) devolve 404 CONTACT_NOT_FOUND', async () => {
+    prismaMock.lead.findFirst.mockImplementation(((args: { where?: { id?: string } }) => {
+      if (args?.where?.id === CONTACT_ID) {
+        return Promise.resolve({ id: CONTACT_ID, isContact: false, companyId: COMPANY_ID });
+      }
+      return Promise.resolve(leadFactory.build({ tenantId: tenant.id }));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }) as any);
+
+    const res = await postLead(comVinculos({ name: 'Contato inválido' }));
+    expect(res.status).toBe(404);
+    expect(res.body.error).toContain('Contato não encontrado');
   });
 
   it('requisição anônima é barrada (403 do CSRF, que roda antes do auth)', async () => {

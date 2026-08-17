@@ -1,27 +1,40 @@
 import { useState } from 'react';
 import { Button } from '../ui/button';
-import { X, ChevronDown, Tag, Download, Trash2, Loader2 } from 'lucide-react';
+import { X, ChevronDown, Download, Trash2, Loader2 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
-import type { Tag as TagType } from '../../types';
+import {
+  LEAD_STATUS_LABELS,
+  TERMINAL_LEAD_STATUSES,
+  type LeadStatus,
+  type LeadStatusReason,
+} from '../../types';
+import { StatusReasonDialog } from './StatusReasonDialog';
 import { apiClient } from '../../services/api/client';
 import { handlePendingApproval } from '../../lib/approvalResponse';
 
 interface LeadBulkActionsProps {
   selectedCount: number;
-  tags: TagType[];
   onClearSelection: () => void;
-  onChangeStatus: (status: string) => void;
-  onAddTag: (tagId: string) => void;
+  /**
+   * Mudança de status em massa. Para PAUSADO/CANCELADO/ENCERRADO o componente
+   * abre o StatusReasonDialog antes e repassa o motivo escolhido — um único
+   * motivo aplicado ao lote inteiro (caso extremo 7).
+   */
+  onChangeStatus: (
+    status: LeadStatus,
+    statusReason?: LeadStatusReason,
+    statusReasonNote?: string
+  ) => void;
   onExportCSV: () => void;
   onDelete: () => void;
   /**
    * IDs dos leads selecionados. Quando fornecido (opcional, retrocompatível), o
-   * componente executa as ações em massa (status/tag/delete) diretamente via
+   * componente executa as ações em massa (status/delete) diretamente via
    * apiClient e trata a resposta 202 de aprovação (mostra o toast "enviado para
    * aprovação do gestor" em vez de sucesso). Quando ausente, mantém o fluxo
    * legado delegando aos callbacks acima (execução imediata == hoje).
@@ -31,28 +44,25 @@ interface LeadBulkActionsProps {
   onActionComplete?: () => void;
 }
 
-const STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: 'NEW', label: 'Novo' },
-  { value: 'CONTACTED', label: 'Contatado' },
-  { value: 'QUALIFIED', label: 'Qualificado' },
-  { value: 'PROPOSAL', label: 'Proposta' },
-  { value: 'NEGOTIATION', label: 'Negociação' },
-  { value: 'WON', label: 'Ganho' },
-  { value: 'LOST', label: 'Perdido' },
-];
+// Régua nova da área comercial (specs/leads-oportunidade req. 7/14). As ações
+// de tag saíram da barra (req. 23 — tags ocultas nas telas de lead; a API de
+// bulk add_tag/remove_tag continua existindo no backend).
+const STATUS_OPTIONS = (Object.entries(LEAD_STATUS_LABELS) as Array<[LeadStatus, string]>).map(
+  ([value, label]) => ({ value, label })
+);
 
 export function LeadBulkActions({
   selectedCount,
-  tags,
   onClearSelection,
   onChangeStatus,
-  onAddTag,
   onExportCSV,
   onDelete,
   selectedLeadIds,
   onActionComplete,
 }: LeadBulkActionsProps) {
   const [busy, setBusy] = useState(false);
+  // Status terminal aguardando motivo no diálogo (req. 14)
+  const [pendingStatus, setPendingStatus] = useState<LeadStatus | null>(null);
 
   // Modo self-executado: só ativa quando o consumidor passa os IDs. Roda a ação
   // em massa, detecta 202 (aprovação pendente) e delega ao callback legado apenas
@@ -79,10 +89,24 @@ export function LeadBulkActions({
     }
   };
 
-  const handleChangeStatus = (status: string) =>
-    runBulk('change_status', { status }, () => onChangeStatus(status));
+  const applyChangeStatus = (
+    status: LeadStatus,
+    statusReason?: LeadStatusReason,
+    statusReasonNote?: string
+  ) =>
+    runBulk('change_status', { status, statusReason, statusReasonNote }, () =>
+      onChangeStatus(status, statusReason, statusReasonNote)
+    );
 
-  const handleAddTag = (tagId: string) => runBulk('add_tag', { tagId }, () => onAddTag(tagId));
+  const handleChangeStatus = (status: LeadStatus) => {
+    // Transição terminal exige motivo (req. 13-14): abre o diálogo antes de
+    // enviar; um motivo vale para o lote inteiro (caso extremo 7).
+    if (TERMINAL_LEAD_STATUSES.includes(status)) {
+      setPendingStatus(status);
+      return;
+    }
+    void applyChangeStatus(status);
+  };
 
   const handleDelete = () => {
     // O delete em massa passa por um diálogo de confirmação no consumidor legado.
@@ -134,28 +158,6 @@ export function LeadBulkActions({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Tag Dropdown */}
-          {tags.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="secondary" size="sm" className="gap-1" disabled={busy}>
-                  <Tag size={14} /> Tag <ChevronDown size={14} />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {tags.map((tag) => (
-                  <DropdownMenuItem key={tag.id} onClick={() => handleAddTag(tag.id)}>
-                    <span
-                      className="inline-block w-3 h-3 rounded-full mr-2"
-                      style={{ backgroundColor: tag.color }}
-                    />
-                    {tag.name}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-
           {/* Export CSV */}
           <Button
             variant="secondary"
@@ -180,6 +182,20 @@ export function LeadBulkActions({
           </Button>
         </div>
       </div>
+
+      {/* Motivo obrigatório para o lote (req. 14 + caso extremo 7): confirmar
+          envia {status, statusReason, statusReasonNote}; cancelar não altera nada. */}
+      <StatusReasonDialog
+        open={pendingStatus !== null}
+        targetStatus={pendingStatus}
+        count={selectedCount}
+        onConfirm={(reason, note) => {
+          const status = pendingStatus;
+          setPendingStatus(null);
+          if (status) void applyChangeStatus(status, reason, note);
+        }}
+        onCancel={() => setPendingStatus(null)}
+      />
     </div>
   );
 }

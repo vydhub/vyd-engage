@@ -1,342 +1,127 @@
-import React, { useState, useEffect } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { Header } from '../components/Header';
 import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import { Label } from '../components/ui/label';
-import { Textarea } from '../components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { Checkbox } from '../components/ui/checkbox';
-import { Mail, MessageSquare, ArrowLeft } from 'lucide-react';
-import { TagSelector } from '../components/TagSelector';
-import { useCustomFields } from '../contexts/CustomFieldsContext';
-import { CustomFieldInput } from '../components/CustomFieldInput';
-import { PresetField } from '../components/settings/PresetField';
-import { InteractionTimeline } from '../components/InteractionTimeline';
+import { ArrowLeft } from 'lucide-react';
 import { apiClient } from '../services/api/client';
-import { TasksList } from '../components/TasksList';
 import { useNotifications } from '../contexts/NotificationContext';
-import { calculateLeadScore, getLeadScore, saveLeadScore } from '../utils/leadScoring';
-import { LeadScoreBadge } from '../components/LeadScoreBadge';
 import { Lead } from '../types';
 import { CommentsSection } from '../components/CommentsSection';
 import { WhatsAppSendPanel } from '../components/lead/WhatsAppSendPanel';
 import { EmailSendPanel } from '../components/lead/EmailSendPanel';
 import { useLeads } from '../hooks/useLeads';
-import { useFunnels } from '../hooks/useFunnels';
 import { toast } from 'sonner';
-import { FieldError } from '../components/register/FieldError';
-import { leadFormSchema } from '../utils/validation/formSchemas';
-import { useFormValidation } from '../hooks/useFormValidation';
-import { useAutoFocus } from '../hooks/useFocusManagement';
+import {
+  LeadOpportunityFields,
+  LeadOpportunityValues,
+  emptyLeadOpportunityValues,
+  leadToOpportunityValues,
+  opportunityValuesToLeadPayload,
+  validateLeadOpportunityValues,
+} from '../components/leads/LeadOpportunityFields';
 
-const DEFAULT_PIPELINE_COLUMNS = [
-  { id: 'novo', title: 'Novo' },
-  { id: 'contato', title: 'Em Contato' },
-  { id: 'fechado', title: 'Fechado' },
-];
-
-interface Automation {
-  id: number;
-  name: string;
-  type: 'whatsapp' | 'email';
-  status: 'active' | 'paused';
-}
-
-const availableAutomations: Automation[] = [
-  {
-    id: 1,
-    name: 'Boas-vindas WhatsApp',
-    type: 'whatsapp',
-    status: 'active',
-  },
-  {
-    id: 2,
-    name: 'Follow-up E-mail',
-    type: 'email',
-    status: 'active',
-  },
-  {
-    id: 3,
-    name: 'Recuperação de Leads Perdidos',
-    type: 'whatsapp',
-    status: 'paused',
-  },
-];
-
+/**
+ * Página de criação/edição do lead-oportunidade (specs/leads-oportunidade
+ * reqs. 3-4, 9-11). A aba Informações usa o conjunto único de campos
+ * (LeadOpportunityFields); automações mock, tags, custom fields e score
+ * saíram do formulário (reqs. 22-24 + tabela E) e a aba órfã "tasks" foi
+ * removida (req. 43). Abas Atividades/Comunicação/Comentários mantidas.
+ */
 export function LeadForm() {
   const navigate = useNavigate();
   const { id } = useParams();
-  const { fields, validateValue } = useCustomFields();
   const { addNotification } = useNotifications();
-  const { leads, createLead, updateLead, fetchLeads } = useLeads();
-  const { currentFunnel } = useFunnels();
+  const { createLead, updateLead } = useLeads();
+  const [lead, setLead] = useState<Lead | null>(null);
+  const [values, setValues] = useState<LeadOpportunityValues>(emptyLeadOpportunityValues());
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- shape cru da API de interações
   const [interactions, setInteractions] = useState<any[]>([]);
-  const [leadScore, setLeadScore] = useState<{
-    score: number;
-    factors: Array<{ type: string; description: string; points: number }>;
-  } | null>(null);
-  const [lead, setLead] = useState<any>(null);
-  const pipelineColumns =
-    currentFunnel?.columns?.map((c) => ({ id: c.id, title: c.title })) || DEFAULT_PIPELINE_COLUMNS;
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    position: '',
-    source: 'manual' as const,
-    status: pipelineColumns[0]?.id || 'novo',
-    automations: [] as number[],
-    tags: [] as string[],
-    customFields: {} as Record<string, any>,
-  });
-  const [customFieldErrors, setCustomFieldErrors] = useState<Record<string, string>>({});
-  const {
-    fieldErrors,
-    touchedFields,
-    handleBlur,
-    handleChange,
-    validateAll,
-    resetValidation,
-    formRef,
-  } = useFormValidation({ schema: leadFormSchema });
-  const autoFocusRef = useAutoFocus<HTMLFormElement>(!id);
 
   useEffect(() => {
-    const loadLead = async () => {
-      if (id) {
-        try {
-          const foundLead = leads.find((l) => String(l.id) === String(id));
-          if (foundLead) {
-            setLead(foundLead);
-            setFormData({
-              name: foundLead.name || '',
-              email: foundLead.email || '',
-              phone: foundLead.phone || '',
-              position: foundLead.position || '',
-              source: foundLead.source || 'manual',
-              status: foundLead.status || 'novo',
-              automations: foundLead.automations || [],
-              tags: foundLead.tags?.map((t: any) => (typeof t === 'string' ? t : t.id)) || [],
-              customFields: foundLead.customFields || {},
-            });
+    let cancelled = false;
 
-            // Carregar interações
-            try {
-              const interactionsData = await apiClient.getLeadInteractions(String(foundLead.id));
-              setInteractions(Array.isArray(interactionsData) ? interactionsData : []);
-            } catch (error) {
-              console.error('Erro ao carregar interações:', error);
-              setInteractions([]);
-            }
-
-            // Calcular score do lead
-            const leadWithInteractions: Lead = {
-              ...foundLead,
-              interactions: [],
-            };
-            const score = calculateLeadScore(leadWithInteractions);
-            saveLeadScore(score);
-            setLeadScore({ score: score.score, factors: score.factors });
-          }
-        } catch (error) {
-          console.error('Erro ao carregar lead:', error);
-        }
-      } else {
-        // Inicializar campos customizados com valores padrão
-        const defaultCustomFields: Record<string, any> = {};
-        fields.forEach((field) => {
-          if (field.defaultValue !== undefined) {
-            defaultCustomFields[field.id] = field.defaultValue;
-          }
-        });
-
-        setFormData({
-          name: '',
-          email: '',
-          phone: '',
-          position: '',
-          source: 'manual',
-          status: 'novo',
-          automations: [],
-          tags: [],
-          customFields: defaultCustomFields,
-        });
+    const load = async () => {
+      if (!id) {
+        setLead(null);
+        setValues(emptyLeadOpportunityValues());
+        setErrors({});
+        setInteractions([]);
+        return;
       }
-      setCustomFieldErrors({});
+      try {
+        const raw = await apiClient.getLead(String(id));
+        const data = ((raw as { data?: unknown }).data ?? raw) as Lead;
+        if (cancelled) return;
+        setLead(data);
+        setValues(leadToOpportunityValues(data));
+        setErrors({});
+
+        try {
+          const interactionsData = await apiClient.getLeadInteractions(String(data.id));
+          const list = Array.isArray(interactionsData)
+            ? interactionsData
+            : ((interactionsData as { data?: unknown[] } | null)?.data ?? []);
+          if (!cancelled) setInteractions(Array.isArray(list) ? list : []);
+        } catch (error) {
+          console.error('Erro ao carregar interações:', error);
+          if (!cancelled) setInteractions([]);
+        }
+      } catch (error) {
+        console.error('Erro ao carregar lead:', error);
+        if (!cancelled) toast.error('Erro ao carregar lead');
+      }
     };
 
-    loadLead();
-  }, [id, fields, leads]);
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
-  const handleAddInteraction = async (interactionData: any) => {
-    if (!lead?.id) return;
-    try {
-      const newInteraction = await apiClient.createInteraction({
-        leadId: String(lead.id),
-        type: interactionData.type,
-        content: interactionData.content,
-        metadata: interactionData.metadata,
-      });
-      setInteractions([newInteraction, ...interactions]);
-    } catch (error) {
-      console.error('Erro ao criar interação:', error);
-      toast.error('Erro ao criar interação');
-    }
-  };
-
-  const handleDeleteInteraction = async (interactionId: string) => {
-    if (!lead?.id) return;
-    try {
-      await apiClient.deleteInteraction(interactionId);
-      setInteractions(interactions.filter((i) => i.id !== interactionId));
-    } catch (error) {
-      console.error('Erro ao deletar interação:', error);
-      toast.error('Erro ao deletar interação');
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
 
-    // Validate standard fields
-    const isValid = validateAll({
-      name: formData.name,
-      email: formData.email,
-      phone: formData.phone,
-      source: formData.source,
-      status: formData.status,
-    });
+    const validationErrors = validateLeadOpportunityValues(values, lead ? 'edit' : 'create');
+    setErrors(validationErrors);
+    if (Object.keys(validationErrors).length > 0) return;
 
-    // Validar campos customizados
-    const errors: Record<string, string> = {};
-    fields.forEach((field) => {
-      const value = formData.customFields[field.id];
-      const validation = validateValue(field, value);
-      if (!validation.valid && validation.error) {
-        errors[field.id] = validation.error;
-      }
-    });
-
-    if (!isValid || Object.keys(errors).length > 0) {
-      setCustomFieldErrors(errors);
-      return;
-    }
-
+    setSaving(true);
     try {
+      const payload = opportunityValuesToLeadPayload(values);
       if (lead) {
-        // Verificar se o status mudou
-        if (lead.status !== formData.status) {
-          const statusLabels: Record<string, string> = {};
-          pipelineColumns.forEach((col) => {
-            statusLabels[col.id] = col.title;
-          });
-
-          const oldStatusLabel = statusLabels[lead.status] || lead.status;
-          const newStatusLabel = statusLabels[formData.status] || formData.status;
-
-          await apiClient.createInteraction({
-            leadId: String(lead.id),
-            type: 'status_change',
-            content: `Status alterado de "${oldStatusLabel}" para "${newStatusLabel}"`,
-            metadata: {
-              oldStatus: lead.status,
-              newStatus: formData.status,
-            },
-          });
-
-          // Recarregar interações
-          const interactionsData = await apiClient.getLeadInteractions(String(lead.id));
-          setInteractions(Array.isArray(interactionsData) ? interactionsData : []);
-        }
-
-        // Atualizar lead existente
+        // Preserva tags/custom fields ocultados (reqs. 23-24: saem da tela, não do dado).
         await updateLead(String(lead.id), {
-          name: formData.name,
-          email: formData.email,
-          phone: formData.phone,
-          position: formData.position || undefined,
-          source: formData.source,
-          status: formData.status,
-          customFields: formData.customFields,
-          tags: formData.tags,
+          ...payload,
+          tags: lead.tags,
+          customFields: lead.customFields,
         });
       } else {
-        // Criar novo lead
-        const newLead = await createLead({
-          name: formData.name,
-          email: formData.email,
-          phone: formData.phone,
-          position: formData.position || undefined,
-          source: formData.source,
-          status: formData.status,
-          customFields: formData.customFields,
-          tags: formData.tags,
-        });
-
-        // Criar interação inicial
-        await apiClient.createInteraction({
-          leadId: String(newLead.id),
-          type: 'note',
-          content: 'Lead criado',
-        });
-
-        // Criar notificação
+        await createLead(payload);
         addNotification({
-          type: 'new_lead',
+          type: 'system',
           title: 'Novo Lead Criado',
-          message: `Lead "${formData.name}" foi adicionado ao sistema`,
+          message: `Lead "${values.name.trim()}" foi adicionado ao sistema`,
           link: `/app/leads`,
         });
       }
-
-      // Navegar de volta
       navigate('/app/leads');
     } catch (error) {
+      // useLeads já exibe o toast com a mensagem do backend (ex.: vínculos
+      // obrigatórios, motivo obrigatório, CONTACT_COMPANY_MISMATCH).
       console.error('Erro ao salvar lead:', error);
-      toast.error('Erro ao salvar lead');
+    } finally {
+      setSaving(false);
     }
-  };
-
-  const handleCustomFieldChange = (fieldId: string, value: any) => {
-    setFormData({
-      ...formData,
-      customFields: {
-        ...formData.customFields,
-        [fieldId]: value,
-      },
-    });
-    // Limpar erro do campo quando alterado
-    if (customFieldErrors[fieldId]) {
-      setCustomFieldErrors({
-        ...customFieldErrors,
-        [fieldId]: '',
-      });
-    }
-  };
-
-  const handleAutomationToggle = (automationId: number) => {
-    setFormData((prev) => {
-      const currentAutomations = prev.automations || [];
-      if (currentAutomations.includes(automationId)) {
-        return {
-          ...prev,
-          automations: currentAutomations.filter((id) => id !== automationId),
-        };
-      } else {
-        return {
-          ...prev,
-          automations: [...currentAutomations, automationId],
-        };
-      }
-    });
   };
 
   return (
     <div className="min-h-full bg-gray-100">
       <Header
         title={lead ? 'Editar Lead' : 'Novo Lead'}
-        subtitle={lead ? `Editando: ${lead.name}` : 'Preencha os dados do novo lead'}
+        subtitle={lead ? `Editando: ${lead.name}` : 'Preencha os dados da nova oportunidade'}
       />
 
       <div className="p-8">
@@ -348,13 +133,10 @@ export function LeadForm() {
         </div>
 
         <div className="bg-card rounded-lg shadow-sm border border-gray-300 overflow-hidden">
-          <div className="p-6 border-b border-gray-300 flex items-center justify-between">
+          <div className="p-6 border-b border-gray-300">
             <h2 className="text-xl font-semibold text-gray-900">
               {lead ? 'Editar Lead' : 'Novo Lead'}
             </h2>
-            {leadScore && (
-              <LeadScoreBadge score={leadScore.score} showDetails factors={leadScore.factors} />
-            )}
           </div>
 
           <div className="p-6">
@@ -377,244 +159,30 @@ export function LeadForm() {
               </TabsList>
 
               <TabsContent value="info" className="space-y-4 mt-0 outline-none relative">
-                <form
-                  onSubmit={handleSubmit}
-                  className="space-y-4"
-                  ref={(el) => {
-                    // eslint-disable-next-line react-hooks/immutability -- merge de refs: atribuir .current é o uso pretendido do ref retornado por useFormValidation
-                    (formRef as React.MutableRefObject<HTMLFormElement | null>).current = el;
-                    // eslint-disable-next-line react-hooks/immutability -- merge de refs: atribuir .current é o uso pretendido do ref retornado por useAutoFocus
-                    (autoFocusRef as React.MutableRefObject<HTMLFormElement | null>).current = el;
-                  }}
-                  noValidate
-                >
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="name">Nome completo *</Label>
-                      <Input
-                        id="name"
-                        value={formData.name}
-                        onChange={(e) => {
-                          setFormData({ ...formData, name: e.target.value });
-                          handleChange('name', e.target.value);
-                        }}
-                        onBlur={() => handleBlur('name', formData.name)}
-                        placeholder="João Silva"
-                        className="mt-1.5"
-                        error={touchedFields.name ? fieldErrors.name : undefined}
-                        aria-describedby={
-                          fieldErrors.name && touchedFields.name ? 'lead-name-error' : undefined
-                        }
-                      />
-                      <FieldError
-                        id="lead-name-error"
-                        error={fieldErrors.name as string}
-                        touched={touchedFields.name}
-                      />
-                    </div>
-
-                    <div>
-                      <Label htmlFor="phone">Telefone</Label>
-                      <Input
-                        id="phone"
-                        value={formData.phone}
-                        onChange={(e) => {
-                          setFormData({ ...formData, phone: e.target.value });
-                          handleChange('phone', e.target.value);
-                        }}
-                        onBlur={() => handleBlur('phone', formData.phone)}
-                        placeholder="(11) 99999-9999"
-                        className="mt-1.5"
-                      />
-                    </div>
-
-                    <div>
-                      <Label htmlFor="email">E-mail</Label>
-                      <Input
-                        id="email"
-                        type="email"
-                        value={formData.email}
-                        onChange={(e) => {
-                          setFormData({ ...formData, email: e.target.value });
-                          handleChange('email', e.target.value);
-                        }}
-                        onBlur={() => handleBlur('email', formData.email)}
-                        placeholder="joao@email.com"
-                        className="mt-1.5"
-                        error={touchedFields.email ? fieldErrors.email : undefined}
-                        aria-describedby={
-                          fieldErrors.email && touchedFields.email ? 'lead-email-error' : undefined
-                        }
-                      />
-                      <FieldError
-                        id="lead-email-error"
-                        error={fieldErrors.email as string}
-                        touched={touchedFields.email}
-                      />
-                    </div>
-
-                    <div>
-                      <Label htmlFor="position">Cargo</Label>
-                      <PresetField
-                        entity="CONTACT"
-                        field="position"
-                        id="position"
-                        value={formData.position}
-                        onChange={(v) => setFormData({ ...formData, position: v })}
-                        placeholder="Ex.: Gerente de Suprimentos"
-                      />
-                    </div>
-
-                    <div>
-                      <Label htmlFor="source">Origem</Label>
-                      <select
-                        id="source"
-                        value={formData.source}
-                        onChange={(e) =>
-                          setFormData({ ...formData, source: e.target.value as any })
-                        }
-                        className="w-full mt-1.5 px-3 py-2 border border-gray-300 rounded-md bg-card"
-                      >
-                        <option value="meta">Meta Ads</option>
-                        <option value="google">Google Ads</option>
-                        <option value="organico">Orgânico</option>
-                        <option value="manual">Manual</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <Label htmlFor="status">Status</Label>
-                      <select
-                        id="status"
-                        value={formData.status}
-                        onChange={(e) =>
-                          setFormData({ ...formData, status: e.target.value as any })
-                        }
-                        className="w-full mt-1.5 px-3 py-2 border border-gray-300 rounded-md bg-card"
-                      >
-                        {pipelineColumns.map((column) => (
-                          <option key={column.id} value={column.id}>
-                            {column.title}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="mt-4">
-                    <Label>Automações</Label>
-                    <div className="mt-1.5 space-y-2 max-h-48 overflow-y-auto border border-gray-300 rounded-md p-3 bg-gray-100">
-                      {availableAutomations.length > 0 ? (
-                        availableAutomations.map((automation) => (
-                          <div
-                            key={automation.id}
-                            className="flex items-center gap-3 p-2 rounded-md hover:bg-card transition-colors"
-                          >
-                            <Checkbox
-                              id={`automation-${automation.id}`}
-                              checked={formData.automations?.includes(automation.id) || false}
-                              onCheckedChange={() => handleAutomationToggle(automation.id)}
-                            />
-                            <label
-                              htmlFor={`automation-${automation.id}`}
-                              className="flex-1 flex items-center gap-2 cursor-pointer"
-                            >
-                              <div
-                                className={`
-                                  w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0
-                                  ${
-                                    automation.type === 'whatsapp'
-                                      ? 'bg-green-100 text-green-600'
-                                      : 'bg-blue-100 text-blue-600'
-                                  }
-                                `}
-                              >
-                                {automation.type === 'whatsapp' ? (
-                                  <MessageSquare size={16} />
-                                ) : (
-                                  <Mail size={16} />
-                                )}
-                              </div>
-                              <div className="flex-1">
-                                <p className="text-sm font-medium text-gray-900">
-                                  {automation.name}
-                                </p>
-                                <div className="flex items-center gap-2 mt-0.5">
-                                  <span
-                                    className={`
-                                      text-xs px-1.5 py-0.5 rounded
-                                      ${
-                                        automation.status === 'active'
-                                          ? 'bg-green-50 text-green-700'
-                                          : 'bg-gray-100 text-gray-600'
-                                      }
-                                    `}
-                                  >
-                                    {automation.status === 'active' ? 'Ativa' : 'Pausada'}
-                                  </span>
-                                  <span className="text-xs text-gray-600">
-                                    {automation.type === 'whatsapp' ? 'WhatsApp' : 'E-mail'}
-                                  </span>
-                                </div>
-                              </div>
-                            </label>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="text-sm text-gray-600 text-center py-4">
-                          Nenhuma automação disponível
-                        </p>
-                      )}
-                    </div>
-                    {formData.automations && formData.automations.length > 0 && (
-                      <p className="text-xs text-gray-600 mt-1.5">
-                        {formData.automations.length} automação(ões) selecionada(s)
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="mt-4">
-                    <Label>Tags</Label>
-                    <TagSelector
-                      selectedTagIds={formData.tags}
-                      onChange={(tagIds) => setFormData({ ...formData, tags: tagIds })}
-                      placeholder="Adicionar tags..."
-                    />
-                  </div>
-
-                  {fields.length > 0 && (
-                    <div className="mt-4">
-                      <Label className="mb-2 block">Campos Customizados</Label>
-                      <div className="space-y-4 p-4 border border-gray-300 rounded-lg bg-gray-100">
-                        {fields.map((field) => (
-                          <CustomFieldInput
-                            key={field.id}
-                            field={field}
-                            value={formData.customFields[field.id]}
-                            onChange={(value) => handleCustomFieldChange(field.id, value)}
-                            error={customFieldErrors[field.id]}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="mt-4">
-                    <Label htmlFor="notes">Notas</Label>
-                    <Textarea
-                      id="notes"
-                      placeholder="Adicione observações sobre este lead..."
-                      className="mt-1.5"
-                      rows={4}
-                    />
-                  </div>
+                <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+                  <LeadOpportunityFields
+                    value={values}
+                    onChange={setValues}
+                    mode={lead ? 'edit' : 'create'}
+                    errors={errors}
+                    idPrefix="lead-form"
+                  />
 
                   <div className="flex justify-end gap-3 pt-4 border-t border-gray-300 mt-6">
-                    <Button variant="outline" type="button" onClick={() => navigate('/app/leads')}>
+                    <Button
+                      variant="outline"
+                      type="button"
+                      onClick={() => navigate('/app/leads')}
+                      disabled={saving}
+                    >
                       Cancelar
                     </Button>
-                    <Button type="submit" className="bg-primary hover:bg-primary-dark">
-                      Salvar Lead
+                    <Button
+                      type="submit"
+                      className="bg-primary hover:bg-primary-dark"
+                      disabled={saving}
+                    >
+                      {saving ? 'Salvando…' : 'Salvar Lead'}
                     </Button>
                   </div>
                 </form>
@@ -622,15 +190,45 @@ export function LeadForm() {
 
               <TabsContent value="activity" className="mt-0 outline-none relative">
                 {lead?.id ? (
-                  <InteractionTimeline
-                    leadId={lead.id}
-                    interactions={interactions}
-                    onDelete={handleDeleteInteraction}
-                    onAdd={handleAddInteraction}
-                  />
+                  // Timeline compacta (leitura). O fluxo completo de atividades
+                  // (Reunião/Ligação/Tarefa — spec req. 35) vive no detalhe do
+                  // lead; o InteractionTimeline legado foi descontinuado.
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-medium text-gray-900">Histórico de atividades</h3>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => navigate(`/app/leads/${lead.id}`)}
+                      >
+                        Registrar atividades no detalhe
+                      </Button>
+                    </div>
+                    {interactions.length === 0 ? (
+                      <div className="text-center py-8 text-gray-600">
+                        <p className="text-sm">Nenhuma atividade registrada ainda.</p>
+                      </div>
+                    ) : (
+                      <ul className="space-y-3">
+                        {interactions.slice(0, 20).map((i) => (
+                          <li key={i.id} className="border rounded-lg p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-medium text-gray-900 truncate">
+                                {i.subject || i.type}
+                              </span>
+                              <span className="text-xs text-gray-600 shrink-0">
+                                {new Date(i.occurredAt || i.createdAt).toLocaleDateString('pt-BR')}
+                              </span>
+                            </div>
+                            <p className="text-sm text-gray-600 mt-1 line-clamp-2">{i.content}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 ) : (
                   <div className="text-center py-12 text-gray-600">
-                    <p>Salve o lead para ver o histórico de interações</p>
+                    <p>Salve o lead para ver o histórico de atividades</p>
                   </div>
                 )}
               </TabsContent>
@@ -656,16 +254,6 @@ export function LeadForm() {
                 ) : (
                   <div className="text-center py-12 text-gray-600">
                     <p>Salve o lead para enviar mensagens</p>
-                  </div>
-                )}
-              </TabsContent>
-
-              <TabsContent value="tasks" className="mt-0 outline-none relative">
-                {lead?.id ? (
-                  <TasksList leadId={lead.id} />
-                ) : (
-                  <div className="text-center py-12 text-gray-600">
-                    <p>Salve o lead para gerenciar tarefas</p>
                   </div>
                 )}
               </TabsContent>

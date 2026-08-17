@@ -1,5 +1,11 @@
 import prisma from '../config/database.js';
-import { InteractionType, InteractionDirection, ScoreEvent } from '@prisma/client';
+import {
+  InteractionType,
+  InteractionDirection,
+  MeetingModality,
+  CallReason,
+  ScoreEvent,
+} from '@prisma/client';
 import { createError } from '../middleware/errorHandler.js';
 import { scoringService } from './scoringService.js';
 import { getLeadNextActionWithReasoning } from './nextActionService.js';
@@ -15,7 +21,39 @@ export interface CreateInteractionData {
   metadata?: any;
   automationId?: string;
   userId?: string;
+  // Campos estruturados das atividades de lead (spec reqs 36-38). A validação
+  // por tipo (MEETING/CALL) e a checagem de participantes acontecem na rota.
+  location?: string;
+  modality?: MeetingModality;
+  callReason?: CallReason;
+  occurredAt?: Date;
+  participantIds?: string[];
 }
+
+// Include compartilhado dos GETs: lead da interação + participantes (contatos da
+// empresa) com os dados de pessoa que a timeline exibe (spec reqs 36-37, 42).
+const interactionInclude = {
+  lead: {
+    select: {
+      id: true,
+      name: true,
+      email: true,
+    },
+  },
+  participants: {
+    include: {
+      lead: {
+        select: {
+          id: true,
+          name: true,
+          position: true,
+          email: true,
+          phone: true,
+        },
+      },
+    },
+  },
+} as const;
 
 export const interactionService = {
   async create(tenantId: string, data: CreateInteractionData) {
@@ -32,16 +70,26 @@ export const interactionService = {
         metadata: data.metadata || null,
         automationId: data.automationId || null,
         userId: data.userId || null,
+        // Campos estruturados de Reunião/Ligação (spec req 38).
+        location: data.location || null,
+        modality: data.modality || null,
+        callReason: data.callReason || null,
+        occurredAt: data.occurredAt || null,
+        // Participantes (contatos já validados na rota): criados junto com a
+        // interação via createMany aninhado — atômico e sem segunda round-trip;
+        // skipDuplicates cobre ids repetidos no payload (req 36-37).
+        ...(data.participantIds && data.participantIds.length > 0
+          ? {
+              participants: {
+                createMany: {
+                  data: data.participantIds.map((leadId) => ({ leadId })),
+                  skipDuplicates: true,
+                },
+              },
+            }
+          : {}),
       },
-      include: {
-        lead: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-      },
+      include: interactionInclude,
     });
 
     // Score interaction event
@@ -62,6 +110,7 @@ export const interactionService = {
     filters?: {
       leadId?: string;
       dealId?: string;
+      companyId?: string;
       type?: string;
       page?: number;
       limit?: number;
@@ -85,6 +134,12 @@ export const interactionService = {
       where.dealId = filters.dealId;
     }
 
+    // Corrige a assimetria com o POST (que já aceita companyId): permite listar a
+    // timeline da empresa.
+    if (filters?.companyId) {
+      where.companyId = filters.companyId;
+    }
+
     if (filters?.type) {
       where.type = filters.type;
     }
@@ -102,16 +157,13 @@ export const interactionService = {
     const [interactions, total] = await Promise.all([
       prisma.interaction.findMany({
         where,
-        include: {
-          lead: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
-          },
-        },
-        orderBy: { createdAt: 'desc' },
+        include: interactionInclude,
+        // Ordenação (spec req 38): occurredAt (data do evento) primeiro. Prisma não
+        // tem coalesce em orderBy e esta listagem é PAGINADA — a ordenação precisa
+        // acontecer no banco, então usamos nulls:'last' (Prisma 5): interações sem
+        // occurredAt (legadas/sistema) vão para o fim, ordenadas por createdAt.
+        // Sem nenhum occurredAt gravado, o resultado é idêntico ao de hoje.
+        orderBy: [{ occurredAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
         skip,
         take: limit,
       }),
@@ -130,7 +182,7 @@ export const interactionService = {
   },
 
   async findByLeadId(tenantId: string, leadId: string, ownerId?: string | { in: string[] }) {
-    return prisma.interaction.findMany({
+    const interactions = await prisma.interaction.findMany({
       where: {
         tenantId,
         leadId,
@@ -145,8 +197,18 @@ export const interactionService = {
             }
           : {}),
       },
+      include: interactionInclude,
       orderBy: { createdAt: 'desc' },
     });
+
+    // Timeline do lead (spec req 38): ordena por occurredAt com FALLBACK REAL em
+    // createdAt (coalesce). Prisma não tem coalesce em orderBy; como este endpoint
+    // NÃO é paginado, ordenar em memória é a opção mais simples e a única que
+    // intercala corretamente atividades datadas e registros legados/sistema pela
+    // data efetiva do evento.
+    return interactions.sort(
+      (a, b) => (b.occurredAt ?? b.createdAt).getTime() - (a.occurredAt ?? a.createdAt).getTime()
+    );
   },
 
   async deleteInteraction(tenantId: string, id: string) {

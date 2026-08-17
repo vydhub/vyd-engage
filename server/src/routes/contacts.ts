@@ -281,7 +281,7 @@ router.post('/leads', requireScope('leads:write'), async (req, res, next) => {
       ...parsed.data,
       // Origem fixa: veio pela extensão do WhatsApp. WHATSAPP não é um LeadSource
       // válido; usamos OTHER (o enum não tem canal de mensageria dedicado).
-      source: LeadSource.OTHER,
+      source: LeadSource.OUTROS,
     });
     res.status(201).json({ status: 201, data: lead });
   } catch (error) {

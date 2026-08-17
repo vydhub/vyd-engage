@@ -3,6 +3,7 @@ import { apiClient } from '../services/api/client';
 import type {
   Capability,
   EffectivePermissions,
+  EntityAction,
   VisibilityLevel,
 } from '../types/governance';
 
@@ -56,11 +57,25 @@ export function usePermissions() {
     return permissions.visibility[entity];
   }
 
+  /**
+   * `true` se o usuário pode executar a ação na ENTIDADE (eixo `entities` do
+   * perfil efetivo — ex.: canEntity('companies','create')). Otimista durante o
+   * load/erro e quando o eixo não vem no payload: só esconde quando o backend
+   * negar explicitamente (mesma filosofia do can()).
+   */
+  function canEntity(entity: string, action: EntityAction): boolean {
+    const entry = permissions?.entities?.[entity];
+    if (!entry) return true;
+    return entry[action] === true;
+  }
+
   return {
     /** Perfil efetivo cru (undefined enquanto carrega). */
     permissions,
     /** `can(cap)` — esconder ações na UI conforme capabilities (UI-only). */
     can,
+    /** `canEntity(entity, action)` — permissão por entidade (create/edit/delete). */
+    canEntity,
     /** `visibility(entity)` — nível de visibilidade por entidade. */
     visibility,
     /** True enquanto o perfil efetivo está em carregamento. */

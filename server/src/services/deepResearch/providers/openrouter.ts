@@ -21,8 +21,10 @@ function apiKey(): string {
  *
  * Sem `max_tokens` explícito, o OpenRouter aplica o default do modelo — e era
  * baixo demais para um relatório de inteligência de mercado: as respostas
- * paravam no meio da frase por volta de 65-100k caracteres. 32k tokens dão
- * folga para o relatório inteiro (~120k caracteres) sem virar cheque em branco.
+ * paravam no meio da frase por volta de 65-100k caracteres. O default subiu de
+ * 32k para 48k tokens quando o template de Segmento foi expandido para 11
+ * capítulos (histórico de preços, censo de empresas, matriz de screening…) —
+ * folga para o relatório inteiro (~180k caracteres) sem virar cheque em branco.
  *
  * Ajustável por env sem deploy: OPENROUTER_MAX_OUTPUT_TOKENS. Se o modelo
  * configurado aceitar menos que o pedido, o provedor corta para o máximo dele —
@@ -31,7 +33,7 @@ function apiKey(): string {
  */
 function maxOutputTokens(): number {
   const raw = parseInt(process.env.OPENROUTER_MAX_OUTPUT_TOKENS || '', 10);
-  return Number.isFinite(raw) && raw > 0 ? raw : 32000;
+  return Number.isFinite(raw) && raw > 0 ? raw : 48000;
 }
 
 /**

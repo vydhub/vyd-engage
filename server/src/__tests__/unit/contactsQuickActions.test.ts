@@ -97,7 +97,7 @@ describe('POST /contacts/leads — req 24', () => {
     expect(createLeadMock).not.toHaveBeenCalled();
   });
 
-  it('com leads:write → 201 e origem OTHER, tenant do apiKey', async () => {
+  it('com leads:write → 201 e origem OUTROS, tenant do apiKey', async () => {
     createLeadMock.mockResolvedValue({ id: 'lead-1', name: 'Fulano' });
     const res = await request(makeApp())
       .post('/contacts/leads')
@@ -107,7 +107,7 @@ describe('POST /contacts/leads — req 24', () => {
     expect(res.body.data).toMatchObject({ id: 'lead-1' });
     const [tenantArg, data] = createLeadMock.mock.calls[0];
     expect(tenantArg).toBe('tenant-x');
-    expect(data.source).toBe('OTHER');
+    expect(data.source).toBe('OUTROS');
     expect(data.name).toBe('Fulano');
   });
 

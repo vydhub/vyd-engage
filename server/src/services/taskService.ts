@@ -39,10 +39,17 @@ function mapTaskTypeToInteraction(type: TaskType | null): InteractionType {
       return InteractionType.CALL;
     case TaskType.REUNIAO:
     case TaskType.VISITA:
+    // Visita técnica é presencial — paridade com VISITA (spec req. 39)
+    case TaskType.VISITA_TECNICA:
     case TaskType.APRESENTACAO:
       return InteractionType.MEETING;
     case TaskType.EMAIL:
       return InteractionType.EMAIL;
+    // Deliberado (spec req. 39): follow-up não presume canal e preparação de
+    // documento é trabalho interno — ambos entram no histórico como NOTE.
+    case TaskType.FOLLOW_UP:
+    case TaskType.PREPARACAO_DOCUMENTO:
+      return InteractionType.NOTE;
     default:
       return InteractionType.NOTE;
   }

@@ -30,8 +30,8 @@ describe('Lead Service', () => {
         name: 'John Doe',
         email: 'john@example.com',
         phone: '+5511999999999',
-        status: 'NEW',
-        source: 'WEBSITE',
+        status: 'NOVO',
+        source: 'OUTROS',
       });
 
       expect(lead).toHaveProperty('id');
@@ -46,8 +46,8 @@ describe('Lead Service', () => {
       const lead = await leadService.create(testTenantId, {
         name: 'Jane Doe',
         email: 'jane@example.com',
-        status: 'NEW',
-        source: 'OTHER',
+        status: 'NOVO',
+        source: 'OUTROS',
       });
 
       expect(lead).toHaveProperty('id');
@@ -60,14 +60,14 @@ describe('Lead Service', () => {
       await leadService.create(testTenantId, {
         name: 'Lead 1',
         email: 'lead1@example.com',
-        status: 'NEW',
-        source: 'WEBSITE',
+        status: 'NOVO',
+        source: 'OUTROS',
       });
       await leadService.create(testTenantId, {
         name: 'Lead 2',
         email: 'lead2@example.com',
-        status: 'CONTACTED',
-        source: 'OTHER',
+        status: 'EM_ANDAMENTO',
+        source: 'OUTROS',
       });
     });
 
@@ -78,9 +78,9 @@ describe('Lead Service', () => {
 
     it('should filter leads by status', async () => {
       const result = await leadService.findAll(testTenantId, {
-        status: 'NEW',
+        status: 'NOVO',
       });
-      expect(result.leads.every((lead) => lead.status === 'NEW')).toBe(true);
+      expect(result.leads.every((lead) => lead.status === 'NOVO')).toBe(true);
     });
   });
 });

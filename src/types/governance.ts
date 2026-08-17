@@ -94,11 +94,23 @@ export type UpdatePermissionProfileInput = Partial<
 
 /** Perfil efetivo do usuário logado (GET /permission-profiles/me) — para a UI
  *  esconder ações conforme capabilities (UI-only; enforcement real é backend). */
+// ── Permissões por entidade (eixo `entities` do getEffective) ─────────
+// O backend sempre envia este eixo no GET /permission-profiles/me
+// (permissionService.getEffective); o tipo era omitido no frontend até o
+// caso extremo 4 da spec leads-oportunidade precisar dele na UI.
+export type EntityAction = 'create' | 'edit' | 'delete';
+export interface EntityPermissionEntry {
+  create: boolean;
+  edit: boolean;
+  delete: boolean;
+}
+
 export interface EffectivePermissions {
   baseRole: BaseRole;
   capabilities: Capabilities;
   visibility: VisibilityMap;
   requireApprovalFor: RequireApprovalFor;
+  entities?: Record<string, EntityPermissionEntry>;
 }
 
 // ── Aprovações (req 15/16) ───────────────────────────

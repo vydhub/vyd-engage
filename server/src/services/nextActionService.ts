@@ -27,6 +27,14 @@ export interface NextAction {
   category: string;
 }
 
+// Estados em que o lead não deve receber sugestões de próxima ação
+// (encerrado/cancelado são terminais; pausado está congelado pelo cliente).
+const INACTIVE_LEAD_STATUSES: LeadStatus[] = [
+  LeadStatus.ENCERRADO,
+  LeadStatus.CANCELADO,
+  LeadStatus.PAUSADO,
+];
+
 const NO_ACTION: NextAction = {
   actionType: null,
   action: 'Tudo em dia',
@@ -102,8 +110,8 @@ export async function getLeadNextAction(tenantId: string, leadId: string): Promi
   // Rules ordered by priority (first match wins)
   // HIGH priority rules first, then MEDIUM, then LOW
 
-  // Rule: Status NEW for 3+ days → first contact
-  if (lead.status === LeadStatus.NEW && leadAgeDays >= 3) {
+  // Rule: Status NOVO for 3+ days → first contact
+  if (lead.status === LeadStatus.NOVO && leadAgeDays >= 3) {
     return withReason({
       actionType: 'CALL',
       action: 'Fazer primeiro contato',
@@ -115,11 +123,7 @@ export async function getLeadNextAction(tenantId: string, leadId: string): Promi
   }
 
   // Rule: No interaction in 7+ days → follow-up
-  if (
-    daysSinceLastInteraction >= 7 &&
-    lead.status !== LeadStatus.WON &&
-    lead.status !== LeadStatus.LOST
-  ) {
+  if (daysSinceLastInteraction >= 7 && !INACTIVE_LEAD_STATUSES.includes(lead.status)) {
     return withReason({
       actionType: 'FOLLOW_UP',
       action: 'Fazer follow-up',
@@ -146,8 +150,7 @@ export async function getLeadNextAction(tenantId: string, leadId: string): Promi
   if (
     daysSinceLastInteraction >= 3 &&
     daysSinceLastInteraction < 7 &&
-    lead.status !== LeadStatus.WON &&
-    lead.status !== LeadStatus.LOST
+    !INACTIVE_LEAD_STATUSES.includes(lead.status)
   ) {
     return withReason({
       actionType: 'WHATSAPP',
@@ -163,8 +166,7 @@ export async function getLeadNextAction(tenantId: string, leadId: string): Promi
   if (
     lead.email &&
     hasEmailInteraction === 0 &&
-    lead.status !== LeadStatus.WON &&
-    lead.status !== LeadStatus.LOST
+    !INACTIVE_LEAD_STATUSES.includes(lead.status)
   ) {
     return withReason({
       actionType: 'EMAIL',
@@ -176,8 +178,8 @@ export async function getLeadNextAction(tenantId: string, leadId: string): Promi
     });
   }
 
-  // Rule: Qualified without deal → create deal
-  if (lead.status === LeadStatus.QUALIFIED && dealCount === 0) {
+  // Rule: Em andamento without deal → create deal
+  if (lead.status === LeadStatus.EM_ANDAMENTO && dealCount === 0) {
     return withReason({
       actionType: 'PROPOSAL',
       action: 'Criar deal/oportunidade',
@@ -192,8 +194,7 @@ export async function getLeadNextAction(tenantId: string, leadId: string): Promi
   if (
     lead.score < 20 &&
     leadAgeDays > 30 &&
-    lead.status !== LeadStatus.WON &&
-    lead.status !== LeadStatus.LOST
+    !INACTIVE_LEAD_STATUSES.includes(lead.status)
   ) {
     return withReason({
       actionType: 'FOLLOW_UP',
@@ -456,7 +457,7 @@ export async function getActionSummary(
     where: {
       tenantId,
       deletedAt: null,
-      status: { notIn: [LeadStatus.WON, LeadStatus.LOST] },
+      status: { notIn: INACTIVE_LEAD_STATUSES },
       ...scope,
     },
     select: { id: true, name: true },

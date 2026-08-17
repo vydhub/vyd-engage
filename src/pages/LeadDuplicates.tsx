@@ -34,14 +34,21 @@ interface DuplicateGroup {
   leads: DuplicateLead[];
 }
 
+// Régua nova (specs/leads-oportunidade req. 7); valores legados por compat com
+// dados pré-migração eventualmente em cache.
 const statusLabels: Record<string, string> = {
+  NOVO: 'Novo',
+  EM_ANDAMENTO: 'Em Andamento',
+  PAUSADO: 'Pausado',
+  CANCELADO: 'Cancelado',
+  ENCERRADO: 'Encerrado',
   NEW: 'Novo',
-  CONTACTED: 'Contatado',
-  QUALIFIED: 'Qualificado',
-  PROPOSAL: 'Proposta',
-  NEGOTIATION: 'Negociação',
-  WON: 'Ganho',
-  LOST: 'Perdido',
+  CONTACTED: 'Em Andamento',
+  QUALIFIED: 'Em Andamento',
+  PROPOSAL: 'Em Andamento',
+  NEGOTIATION: 'Em Andamento',
+  WON: 'Encerrado',
+  LOST: 'Cancelado',
 };
 
 function formatDate(dateStr: string): string {
@@ -231,9 +238,6 @@ export function LeadDuplicates() {
                           Status
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                          Score
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
                           Criado em
                         </th>
                       </tr>
@@ -269,7 +273,6 @@ export function LeadDuplicates() {
                               {statusLabels[lead.status] || lead.status}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-gray-600">{lead.score ?? 0}</td>
                           <td className="px-6 py-4 text-gray-600">{formatDate(lead.createdAt)}</td>
                         </tr>
                       ))}

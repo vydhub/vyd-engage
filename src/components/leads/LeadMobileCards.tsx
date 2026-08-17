@@ -2,28 +2,24 @@ import { useNavigate, Link } from 'react-router';
 import { Checkbox } from '../ui/checkbox';
 import { LeadStatusBadge } from '../LeadStatusBadge';
 import { LeadSourceBadge } from '../LeadSourceBadge';
-import { LeadScoreBadge } from '../LeadScoreBadge';
-import { TagBadge } from '../TagBadge';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Trash2, Building2, User } from 'lucide-react';
 import { NextActionBadge } from './NextActionBadge';
-import type { Lead, Tag } from '../../types';
+import type { Lead } from '../../types';
 
 interface LeadMobileCardsProps {
   leads: Lead[];
   selectedLeads: string[];
   onSelectLead: (id: string) => void;
   onDeleteLead: (id: string) => void;
-  onScoreClick: (leadId: string) => void;
-  getTagById: (id: string) => Tag | undefined;
 }
 
+// Régua nova "Leads como Oportunidade" (specs/leads-oportunidade reqs. 22-24):
+// cards mostram empresa, status, origem e responsável — sem score nem tags.
 export function LeadMobileCards({
   leads,
   selectedLeads,
   onSelectLead,
   onDeleteLead,
-  onScoreClick,
-  getTagById,
 }: LeadMobileCardsProps) {
   const navigate = useNavigate();
 
@@ -65,32 +61,31 @@ export function LeadMobileCards({
             </div>
           </div>
           <div className="ml-7 space-y-1.5">
-            {lead.email && <p className="text-sm text-gray-600 truncate">{lead.email}</p>}
+            <div className="flex items-center gap-1.5 text-sm text-gray-600">
+              <Building2 size={13} className="shrink-0 text-gray-400" />
+              {lead.companyRef ? (
+                <span className="truncate">{lead.companyRef.name}</span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 min-w-0">
+                  {lead.company ? <span className="truncate">{lead.company}</span> : null}
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                    pendente
+                  </span>
+                </span>
+              )}
+            </div>
+            {lead.assignedUser && (
+              <div className="flex items-center gap-1.5 text-sm text-gray-600">
+                <User size={13} className="shrink-0 text-gray-400" />
+                <span className="truncate">{lead.assignedUser.name}</span>
+              </div>
+            )}
             <div className="flex items-center gap-2 flex-wrap">
               <LeadStatusBadge status={lead.status} />
-              <button
-                type="button"
-                onClick={() => onScoreClick(lead.id)}
-                className="cursor-pointer"
-              >
-                <LeadScoreBadge score={lead.score || 0} />
-              </button>
               <LeadSourceBadge source={lead.source} />
               {/* AI next-action suggestion (icon + reasoning tooltip) */}
               <NextActionBadge leadId={lead.id} variant="icon" />
             </div>
-            {lead.tags && lead.tags.length > 0 && (
-              <div className="flex flex-wrap gap-1 pt-1">
-                {lead.tags.slice(0, 3).map((tagId: string) => {
-                  const tag = getTagById(tagId);
-                  if (!tag) return null;
-                  return <TagBadge key={tagId} tag={tag} size="sm" />;
-                })}
-                {lead.tags.length > 3 && (
-                  <span className="text-xs text-gray-500">+{lead.tags.length - 3}</span>
-                )}
-              </div>
-            )}
           </div>
         </div>
       ))}

@@ -404,12 +404,12 @@ export const dealService = {
         });
     }
 
-    // When deal is WON and has a leadId, update lead status to WON
+    // Deal GANHO com leadId: encerra o lead de origem como convertido
     if (data.stage === DealStage.WON && deal.leadId) {
       await prisma.lead
         .update({
           where: { id: deal.leadId },
-          data: { status: 'WON' },
+          data: { status: 'ENCERRADO', statusReason: 'CONVERTIDO_EM_OPORTUNIDADE' },
         })
         .catch((err) => {
           logger.error('Failed to update lead status to WON after deal won', err, {
@@ -488,7 +488,10 @@ export const dealService = {
     });
     if (deal.leadId) {
       await prisma.lead
-        .update({ where: { id: deal.leadId }, data: { status: 'WON' } })
+        .update({
+          where: { id: deal.leadId },
+          data: { status: 'ENCERRADO', statusReason: 'CONVERTIDO_EM_OPORTUNIDADE' },
+        })
         .catch(() => {});
     }
     // Deal GANHO promove a empresa vinculada a CLIENTE_ATIVO (req 6) — só na

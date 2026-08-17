@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
+import { toast } from 'sonner';
 import {
   DndContext,
   DragOverlay,
@@ -19,8 +20,7 @@ import { Button, buttonVariants } from '../components/ui/button';
 import { LeadSourceBadge } from '../components/LeadSourceBadge';
 import {
   Plus,
-  Phone,
-  Mail,
+  Building2,
   Clock,
   Edit2,
   Trash2,
@@ -35,8 +35,6 @@ import {
   AlertTriangle,
   RefreshCw,
 } from 'lucide-react';
-import { useTags } from '../contexts/TagsContext';
-import { TagBadge } from '../components/TagBadge';
 import { Input } from '../components/ui/input';
 import { Checkbox } from '../components/ui/checkbox';
 import {
@@ -57,21 +55,40 @@ import {
   DialogFooter,
 } from '../components/ui/dialog';
 import { LeadModal } from '../components/LeadModal';
-import { LeadScoreBadge } from '../components/LeadScoreBadge';
-import { ScoreBreakdownModal } from '../components/ScoreBreakdownModal';
+import { StatusReasonDialog } from '../components/leads/StatusReasonDialog';
 import { cn } from '../components/ui/utils';
 import { apiClient } from '../services/api/client';
 import { useFunnels, type FunnelLead } from '../hooks/useFunnels';
-import { mapStatusFromBackend, mapSourceFromBackend } from '../utils/leadEnums';
+import {
+  LEAD_SOURCE_LABELS,
+  TERMINAL_LEAD_STATUSES,
+  type LeadSource,
+  type LeadStatus,
+  type LeadStatusReason,
+} from '../types';
 import { PageSkeleton } from '../components/PageSkeleton';
 import { CHART_PALETTE } from '@/utils/designTokens';
 
 // Pipeline column colors — design-system chart palette tokens (var(--color-chart-*))
 const PIPELINE_COLUMN_COLORS = [...CHART_PALETTE];
 
+// Régua nova da área comercial (specs/leads-oportunidade req. 8/12): filtros de
+// origem usam o enum novo diretamente (leadEnums foi removido).
+const SOURCE_OPTIONS = (Object.entries(LEAD_SOURCE_LABELS) as Array<[LeadSource, string]>).map(
+  ([value, label]) => ({ value, label })
+);
+
+/** Movimento de card pendente de motivo (arrasto p/ coluna terminal — req. 14). */
+interface PendingTerminalMove {
+  leadId: string;
+  targetColumnId: string;
+  position: number;
+  fromColumnId: string;
+  mappedStatus: LeadStatus;
+}
+
 export function Pipeline() {
   const navigate = useNavigate();
-  const { getTagById } = useTags();
   const {
     funnels,
     currentFunnel,
@@ -104,21 +121,17 @@ export function Pipeline() {
   const [editingFunnelId, setEditingFunnelId] = useState<string | null>(null);
   const [editingFunnelName, setEditingFunnelName] = useState('');
   const [errorMessage, setErrorMessage] = useState<string>('');
-  const [filterSources, setFilterSources] = useState<string[]>([
-    'WEBSITE',
-    'SOCIAL_MEDIA',
-    'REFERRAL',
-    'EMAIL',
-    'PHONE',
-    'OTHER',
-  ]);
+  const [filterSources, setFilterSources] = useState<string[]>(
+    SOURCE_OPTIONS.map((opt) => opt.value)
+  );
   const [filterPopoverOpen, setFilterPopoverOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<any>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsColumnOrder, setSettingsColumnOrder] = useState<string[]>([]);
-  const [scoreLeadId, setScoreLeadId] = useState<string | null>(null);
   const [activeLead, setActiveLead] = useState<FunnelLead | null>(null);
+  // Arrasto para coluna terminal aguardando motivo (req. 14 + caso extremo 12)
+  const [pendingMove, setPendingMove] = useState<PendingTerminalMove | null>(null);
   // Suppresses the click that may trail a drag (so a drop doesn't also open the modal).
   const justDraggedRef = useRef(false);
   const filterPopoverRef = useRef<HTMLDivElement>(null);
@@ -149,15 +162,8 @@ export function Pipeline() {
     };
   }, [filterPopoverOpen]);
 
-  // Source options
-  const sourceOptions = [
-    { value: 'SOCIAL_MEDIA', label: 'Meta Ads' },
-    { value: 'WEBSITE', label: 'Google / Orgânico' },
-    { value: 'REFERRAL', label: 'Indicação' },
-    { value: 'EMAIL', label: 'Email' },
-    { value: 'PHONE', label: 'Telefone' },
-    { value: 'OTHER', label: 'Manual / Outro' },
-  ];
+  // Source options — régua nova (7 origens, req. 8)
+  const sourceOptions = SOURCE_OPTIONS;
 
   // Filter columns by selected sources
   const filteredColumns = columns.map((column) => ({
@@ -212,7 +218,17 @@ export function Pipeline() {
     const targetColumn = columns.find((c) => c.id === targetColumnId);
     const position = targetColumn ? targetColumn.leads.length : 0;
 
-    // Create interaction for status change
+    // Coluna mapeada a status terminal (PAUSADO/CANCELADO/ENCERRADO) exige
+    // motivo (req. 14 + caso extremo 12): NÃO move ainda — abre o diálogo. Como
+    // nenhum estado foi alterado, cancelar o diálogo deixa o card exatamente na
+    // coluna original, sem persistir nada.
+    const mappedStatus = targetColumn?.mappedStatus as LeadStatus | null | undefined;
+    if (mappedStatus && TERMINAL_LEAD_STATUSES.includes(mappedStatus)) {
+      setPendingMove({ leadId, targetColumnId, position, fromColumnId, mappedStatus });
+      return;
+    }
+
+    // Create interaction for status change (movimentos não-terminais)
     try {
       const fromTitle = columns.find((c) => c.id === fromColumnId)?.title || '';
       const toTitle = targetColumn?.title || '';
@@ -233,20 +249,51 @@ export function Pipeline() {
     await moveLead(leadId, targetColumnId, position);
   };
 
+  /**
+   * Confirmação do motivo no arrasto para coluna terminal (req. 14).
+   *
+   * A ORDEM das chamadas importa e foi escolhida lendo o backend:
+   * `leadService.update` só grava statusReason/statusReasonNote e gera a
+   * Interaction STATUS_CHANGE quando o status MUDA (`data.status !==
+   * existingLead.status`); já `funnelService.moveLead` seta o status mapeado da
+   * coluna direto no Prisma, SEM motivo e sem interaction. Se o move rodasse
+   * primeiro, o updateLead seguinte veria statusChanged=false e NÃO gravaria o
+   * motivo nem a timeline. Por isso: `updateLead` ANTES (transição real → grava
+   * motivo + interaction) e `moveLead` DEPOIS (reafirma o status e grava
+   * coluna/posição). A interaction manual de mudança de coluna é dispensada
+   * aqui — o backend já registrou a transição com o motivo.
+   */
+  const handleConfirmTerminalMove = async (reason: LeadStatusReason, note?: string) => {
+    const move = pendingMove;
+    setPendingMove(null);
+    if (!move) return;
+    try {
+      await apiClient.updateLead(move.leadId, {
+        status: move.mappedStatus,
+        statusReason: reason,
+        statusReasonNote: note,
+      });
+      await moveLead(move.leadId, move.targetColumnId, move.position);
+    } catch (error) {
+      console.error('Erro ao mover lead com motivo:', error);
+      toast.error('Erro ao mover o lead. Tente novamente.');
+      if (currentFunnelId) {
+        await loadFunnelWithLeads(currentFunnelId);
+      }
+    }
+  };
+
+  /** Cancelar o diálogo desfaz o movimento (caso extremo 12): nada foi
+   *  persistido nem movido — o card permanece na coluna original. */
+  const handleCancelTerminalMove = () => setPendingMove(null);
+
   const handleCardClick = async (e: React.MouseEvent, lead: FunnelLead) => {
     if (justDraggedRef.current) return;
 
     try {
+      // Enums novos direto do backend (req. 12) — sem camada de mapeamento.
       const fullLead = await apiClient.getLead(lead.id);
-      if (fullLead) {
-        setSelectedLead({
-          ...fullLead,
-          status: mapStatusFromBackend(fullLead.status),
-          source: mapSourceFromBackend(fullLead.source),
-        });
-      } else {
-        setSelectedLead(lead);
-      }
+      setSelectedLead(fullLead || lead);
     } catch {
       setSelectedLead(lead);
     }
@@ -423,19 +470,6 @@ export function Pipeline() {
 
   const handleFunnelChange = (funnelId: string) => {
     switchFunnel(funnelId);
-  };
-
-  // Helper to get source label for display
-  const getSourceLabel = (source: string) => {
-    const map: Record<string, string> = {
-      WEBSITE: 'organico',
-      SOCIAL_MEDIA: 'meta',
-      REFERRAL: 'organico',
-      EMAIL: 'manual',
-      PHONE: 'manual',
-      OTHER: 'manual',
-    };
-    return map[source] || 'manual';
   };
 
   if (loading) {
@@ -774,49 +808,19 @@ export function Pipeline() {
                         columnId={column.id}
                         onCardClick={handleCardClick}
                       >
-                        <div className="flex items-start justify-between mb-3">
-                          <div>
-                            <h4 className="font-medium text-gray-900 mb-1">{lead.name}</h4>
-                            <LeadSourceBadge source={getSourceLabel(lead.source)} />
-                          </div>
-                          <button
-                            type="button"
-                            className="cursor-pointer flex-shrink-0"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setScoreLeadId(lead.id);
-                            }}
-                          >
-                            <LeadScoreBadge score={lead.score || 0} />
-                          </button>
+                        <div className="mb-3">
+                          <h4 className="font-medium text-gray-900 mb-1">{lead.name}</h4>
+                          <LeadSourceBadge source={lead.source} />
                         </div>
 
-                        <div className="space-y-2 mb-3">
-                          {lead.phone && (
-                            <div className="flex items-center gap-2 text-sm text-gray-600">
-                              <Phone size={14} />
-                              <span>{lead.phone}</span>
-                            </div>
-                          )}
-                          {lead.email && (
-                            <div className="flex items-center gap-2 text-sm text-gray-600">
-                              <Mail size={14} />
-                              <span className="truncate">{lead.email}</span>
-                            </div>
-                          )}
-                        </div>
-
-                        {lead.tags && lead.tags.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5 mb-3">
-                            {lead.tags.slice(0, 2).map((tagRelation) => {
-                              const tag = tagRelation.tag;
-                              if (!tag) return null;
-                              return <TagBadge key={tag.id} tag={tag} size="sm" />;
-                            })}
-                            {lead.tags.length > 2 && (
-                              <span className="text-xs text-gray-600 px-1.5 py-0.5 bg-gray-100 rounded">
-                                +{lead.tags.length - 2}
-                              </span>
+                        {(lead.companyRef?.name || lead.company) && (
+                          <div className="flex items-center gap-2 text-sm text-gray-600 mb-3">
+                            <Building2 size={14} className="flex-shrink-0" />
+                            <span className="truncate">
+                              {lead.companyRef?.name || lead.company}
+                            </span>
+                            {!lead.companyRef && (
+                              <span className="text-xs text-gray-500">(pendente)</span>
                             )}
                           </div>
                         )}
@@ -1084,11 +1088,13 @@ export function Pipeline() {
       {/* Lead Modal */}
       <LeadModal open={modalOpen} onClose={handleCloseModal} lead={selectedLead} />
 
-      {/* Score Breakdown Modal */}
-      <ScoreBreakdownModal
-        leadId={scoreLeadId!}
-        open={!!scoreLeadId}
-        onClose={() => setScoreLeadId(null)}
+      {/* Motivo obrigatório no arrasto p/ coluna terminal (req. 14 + caso 12):
+          confirmar grava motivo + move; cancelar devolve o card à coluna original. */}
+      <StatusReasonDialog
+        open={pendingMove !== null}
+        targetStatus={pendingMove?.mappedStatus ?? null}
+        onConfirm={handleConfirmTerminalMove}
+        onCancel={handleCancelTerminalMove}
       />
 
       {/* Pipeline Settings Dialog */}

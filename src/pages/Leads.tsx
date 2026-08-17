@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
+import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Header } from '../components/Header';
 import { LeadModal } from '../components/LeadModal';
@@ -13,11 +14,15 @@ import { LeadFilters } from '../components/leads/LeadFilters';
 import { LeadTable } from '../components/leads/LeadTable';
 import { LeadMobileCards } from '../components/leads/LeadMobileCards';
 import { Pagination } from '../components/Pagination';
-import { ScoreBreakdownModal } from '../components/ScoreBreakdownModal';
-import { useTags } from '../contexts/TagsContext';
-import { useCustomFields } from '../contexts/CustomFieldsContext';
 import { useSidePanel } from '../contexts/SidePanelContext';
-import { Lead } from '../types';
+import {
+  Lead,
+  LEAD_STATUS_LABELS,
+  LEAD_SOURCE_LABELS,
+  type LeadStatus,
+  type LeadSource,
+  type LeadStatusReason,
+} from '../types';
 import { apiClient } from '../services/api/client';
 import {
   handlePendingApproval,
@@ -25,7 +30,6 @@ import {
   notifyPendingApproval,
 } from '../lib/approvalResponse';
 import { useLeads } from '../hooks/useLeads';
-import { mapStatusToBackend, mapSourceToBackend } from '../utils/leadEnums';
 import { useSavedViews } from '../hooks/useSavedViews';
 import { SavedViewsBar } from '../components/filters/SavedViewsBar';
 import {
@@ -46,22 +50,15 @@ import {
 
 // --- Constants ---
 
-interface Automation {
-  id: number;
-  name: string;
-  type: 'whatsapp' | 'email';
-  status: 'active' | 'paused';
-}
+// Régua nova da área comercial (specs/leads-oportunidade req. 12): filtros usam
+// os enums do backend diretamente, sem camada de mapeamento (leadEnums removido).
+const STATUS_FILTER_OPTIONS = (
+  Object.entries(LEAD_STATUS_LABELS) as Array<[LeadStatus, string]>
+).map(([value, label]) => ({ value, label }));
 
-const availableAutomations: Automation[] = [
-  { id: 1, name: 'Boas-vindas WhatsApp', type: 'whatsapp', status: 'active' },
-  { id: 2, name: 'Follow-up E-mail', type: 'email', status: 'active' },
-  { id: 3, name: 'Recuperação de Leads Perdidos', type: 'whatsapp', status: 'paused' },
-];
-
-const getAutomationById = (id: number): Automation | undefined => {
-  return availableAutomations.find((automation) => automation.id === id);
-};
+const SOURCE_FILTER_OPTIONS = (
+  Object.entries(LEAD_SOURCE_LABELS) as Array<[LeadSource, string]>
+).map(([value, label]) => ({ value, label }));
 
 // --- Component ---
 
@@ -70,8 +67,6 @@ type ViewTab = 'leads' | 'contacts' | 'all';
 export function Leads() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { getTagById, tags } = useTags();
-  const { fields: customFields } = useCustomFields();
   const { openPanel } = useSidePanel();
   const {
     leads: leadsData,
@@ -91,6 +86,13 @@ export function Leads() {
     deleteView: deleteSavedView,
   } = useSavedViews('leads');
 
+  // Usuários do tenant — opções do filtro "Responsável comercial" (req. 34)
+  const { data: tenantUsers } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => apiClient.getUsers(),
+    staleTime: 5 * 60_000,
+  });
+
   // View tab state from URL
   const viewParam = searchParams.get('view');
   const activeTab: ViewTab =
@@ -106,9 +108,6 @@ export function Leads() {
   // Filter state
   const [filterStatus, setFilterStatus] = useState<string[]>([]);
   const [filterSource, setFilterSource] = useState<string[]>([]);
-  const [filterAutomation, setFilterAutomation] = useState<string[]>([]);
-  const [filterTag, setFilterTag] = useState<string[]>([]);
-  const [filterCustomFields, setFilterCustomFields] = useState<Record<string, any>>({});
   const [searchQuery, setSearchQuery] = useState('');
 
   // Advanced filter state
@@ -121,10 +120,6 @@ export function Leads() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteSingleLeadId, setDeleteSingleLeadId] = useState<string | null>(null);
   const [importModalOpen, setImportModalOpen] = useState(false);
-  const [scoreLeadId, setScoreLeadId] = useState<string | null>(null);
-
-  // Table expansion state
-  const [expandedLeads, setExpandedLeads] = useState<Set<string>>(new Set());
 
   // Debounced search
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -139,16 +134,13 @@ export function Leads() {
         limit: pagination.limit,
       };
       if (filterStatus.length === 1) {
-        serverFilters.status = mapStatusToBackend(filterStatus[0]);
+        serverFilters.status = filterStatus[0];
       }
       if (filterSource.length === 1) {
-        serverFilters.source = mapSourceToBackend(filterSource[0]);
+        serverFilters.source = filterSource[0];
       }
       if (debouncedSearch) {
         serverFilters.search = debouncedSearch;
-      }
-      if (filterTag.length === 1) {
-        serverFilters.tagId = filterTag[0];
       }
       // Apply isContact filter based on active tab
       if (activeTab === 'leads') {
@@ -158,7 +150,7 @@ export function Leads() {
       }
       return serverFilters;
     },
-    [filterStatus, filterSource, debouncedSearch, filterTag, pagination.limit, activeTab]
+    [filterStatus, filterSource, debouncedSearch, pagination.limit, activeTab]
   );
 
   // Debounce search input
@@ -176,63 +168,17 @@ export function Leads() {
   useEffect(() => {
     fetchLeads(buildServerFilters(1));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterStatus, filterSource, debouncedSearch, filterTag, activeTab]);
+  }, [filterStatus, filterSource, debouncedSearch, activeTab]);
 
-  // --- Client-side filtering ---
+  // --- Client-side filtering (multi-seleção — o servidor filtra 1 valor) ---
 
-  const filteredLeads = leadsData.filter((lead: any) => {
+  const filteredLeads = leadsData.filter((lead) => {
     const matchesStatus = filterStatus.length <= 1 || filterStatus.includes(lead.status);
     const matchesSource = filterSource.length <= 1 || filterSource.includes(lead.source);
-    const matchesTag =
-      filterTag.length <= 1 ||
-      (lead.tags && lead.tags.some((tagId: string) => filterTag.includes(tagId)));
-    const matchesAutomation =
-      filterAutomation.length === 0 ||
-      filterAutomation.some((filter: string) => {
-        if (filter === 'with') return lead.automations && lead.automations.length > 0;
-        if (filter === 'without') return !lead.automations || lead.automations.length === 0;
-        return lead.automations && lead.automations.includes(Number(filter));
-      });
-    const matchesCustomFields =
-      Object.keys(filterCustomFields).length === 0 ||
-      Object.entries(filterCustomFields).every(([fieldId, filterValue]) => {
-        if (filterValue === null || filterValue === undefined || filterValue === '') return true;
-        const leadValue = lead.customFields?.[fieldId];
-        if (leadValue === null || leadValue === undefined || leadValue === '') return false;
-        const field = customFields.find((f) => f.id === fieldId);
-        if (!field) return true;
-        switch (field.type) {
-          case 'text':
-          case 'textarea':
-            return String(leadValue).toLowerCase().includes(String(filterValue).toLowerCase());
-          case 'number':
-            return Number(leadValue) === Number(filterValue);
-          case 'date':
-            return String(leadValue) === String(filterValue);
-          case 'checkbox':
-            return Boolean(leadValue) === Boolean(filterValue);
-          case 'select':
-            return String(leadValue) === String(filterValue);
-          default:
-            return String(leadValue) === String(filterValue);
-        }
-      });
-    return matchesStatus && matchesSource && matchesAutomation && matchesTag && matchesCustomFields;
+    return matchesStatus && matchesSource;
   });
 
   // --- Handlers ---
-
-  const toggleLeadExpansion = (leadId: string) => {
-    setExpandedLeads((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(leadId)) {
-        newSet.delete(leadId);
-      } else {
-        newSet.add(leadId);
-      }
-      return newSet;
-    });
-  };
 
   const handleSelectAll = () => {
     const filteredLeadIds = filteredLeads.map((l) => l.id);
@@ -258,11 +204,10 @@ export function Leads() {
   // avulsos); se o perfil exige aprovação, responde 202 → "enviado para aprovação".
   const handleServerExport = async (format: 'json' | 'csv' | 'xlsx' = 'csv') => {
     try {
-      const filters: { status?: string; source?: string; search?: string; tagId?: string } = {};
-      if (filterStatus.length === 1) filters.status = mapStatusToBackend(filterStatus[0]);
-      if (filterSource.length === 1) filters.source = mapSourceToBackend(filterSource[0]);
+      const filters: { status?: string; source?: string; search?: string } = {};
+      if (filterStatus.length === 1) filters.status = filterStatus[0];
+      if (filterSource.length === 1) filters.source = filterSource[0];
       if (searchQuery) filters.search = searchQuery;
-      if (filterTag.length === 1) filters.tagId = filterTag[0];
 
       toast.info('Exportando leads…');
       const blob = await apiClient.exportLeadsDownload(format, filters);
@@ -292,7 +237,6 @@ export function Leads() {
   // permissão/aprovação). As duas superfícies antigas (página atual / todos filtrados)
   // que geravam o arquivo no cliente foram redirecionadas para `handleServerExport`,
   // eliminando a geração client-side de CSV/XLSX de leads que burlava o gate.
-  const handleExportLeads = () => handleServerExport('xlsx');
   const handleExportAllFiltered = () => handleServerExport('xlsx');
 
   const handleDeleteLead = async (leadId: string) => {
@@ -334,10 +278,22 @@ export function Leads() {
     }
   };
 
-  const handleBulkChangeStatus = async (status: string) => {
+  // Mudança de status em massa (specs/leads-oportunidade req. 14 + caso 7): para
+  // PAUSADO/CANCELADO/ENCERRADO o LeadBulkActions abre o StatusReasonDialog e
+  // repassa o motivo — o payload {status, statusReason, statusReasonNote} vale
+  // para o lote inteiro (o backend valida e gera as interactions).
+  const handleBulkChangeStatus = async (
+    status: LeadStatus,
+    statusReason?: LeadStatusReason,
+    statusReasonNote?: string
+  ) => {
     if (selectedLeads.length === 0) return;
     try {
-      const res = await apiClient.bulkUpdateLeads(selectedLeads, 'change_status', { status });
+      const res = await apiClient.bulkUpdateLeads(selectedLeads, 'change_status', {
+        status,
+        statusReason,
+        statusReasonNote,
+      });
       // 202 → enviado para aprovação: mantém a seleção e NÃO recarrega como sucesso.
       if (handlePendingApproval(res)) return;
       setSelectedLeads([]);
@@ -346,21 +302,6 @@ export function Leads() {
     } catch (error) {
       console.error('Erro ao alterar status:', error);
       toast.error('Erro ao alterar status. Tente novamente.');
-    }
-  };
-
-  const handleBulkAddTag = async (tagId: string) => {
-    if (selectedLeads.length === 0) return;
-    try {
-      const res = await apiClient.bulkUpdateLeads(selectedLeads, 'add_tag', { tagId });
-      // 202 → enviado para aprovação: mantém a seleção e NÃO recarrega como sucesso.
-      if (handlePendingApproval(res)) return;
-      setSelectedLeads([]);
-      refetch();
-      toast.success(`Tag adicionada a ${selectedLeads.length} lead(s)!`);
-    } catch (error) {
-      console.error('Erro ao adicionar tag:', error);
-      toast.error('Erro ao adicionar tag. Tente novamente.');
     }
   };
 
@@ -376,55 +317,30 @@ export function Leads() {
     setSelectedLeads([]);
   };
 
-  // --- Advanced Filter Fields ---
+  // --- Advanced Filter Fields (req. 34: sem score/custom fields; com responsável e empresa) ---
   const advancedFilterFields: FieldDefinition[] = [
     { key: 'name', label: 'Nome', type: 'text' },
-    { key: 'email', label: 'E-mail', type: 'text' },
-    { key: 'phone', label: 'Telefone', type: 'text' },
     { key: 'company', label: 'Empresa', type: 'text' },
     {
       key: 'status',
       label: 'Status',
       type: 'select',
-      options: [
-        { value: 'NEW', label: 'Novo' },
-        { value: 'CONTACTED', label: 'Em Contato' },
-        { value: 'QUALIFIED', label: 'Qualificado' },
-        { value: 'PROPOSAL', label: 'Proposta' },
-        { value: 'NEGOTIATION', label: 'Negociacao' },
-        { value: 'WON', label: 'Ganho' },
-        { value: 'LOST', label: 'Perdido' },
-      ],
+      options: STATUS_FILTER_OPTIONS,
     },
     {
       key: 'source',
       label: 'Origem',
       type: 'select',
-      options: [
-        { value: 'WEBSITE', label: 'Website' },
-        { value: 'SOCIAL_MEDIA', label: 'Redes Sociais' },
-        { value: 'REFERRAL', label: 'Indicacao' },
-        { value: 'EMAIL', label: 'E-mail' },
-        { value: 'PHONE', label: 'Telefone' },
-        { value: 'OTHER', label: 'Outro' },
-      ],
+      options: SOURCE_FILTER_OPTIONS,
     },
-    { key: 'score', label: 'Score', type: 'number' },
-    { key: 'createdAt', label: 'Data de criacao', type: 'date' },
+    {
+      key: 'assignedTo',
+      label: 'Responsável comercial',
+      type: 'select',
+      options: (tenantUsers || []).map((u) => ({ value: u.id, label: u.name })),
+    },
+    { key: 'createdAt', label: 'Data de criação', type: 'date' },
     { key: 'isContact', label: 'Contato', type: 'boolean' },
-    ...customFields.map((cf) => ({
-      key: `cf_${cf.id}`,
-      label: cf.name,
-      type: (cf.type === 'textarea'
-        ? 'text'
-        : cf.type === 'checkbox'
-          ? 'boolean'
-          : cf.type) as FieldDefinition['type'],
-      options:
-        cf.type === 'select' && cf.options
-          ? (cf.options as { value: string; label: string }[])
-          : undefined,
-    })),
   ];
 
   // --- Saved Views ---
@@ -432,31 +348,16 @@ export function Leads() {
     () => ({
       filterStatus,
       filterSource,
-      filterAutomation,
-      filterTag,
-      filterCustomFields,
       searchQuery,
       advancedConditions,
       advancedLogic,
     }),
-    [
-      filterStatus,
-      filterSource,
-      filterAutomation,
-      filterTag,
-      filterCustomFields,
-      searchQuery,
-      advancedConditions,
-      advancedLogic,
-    ]
+    [filterStatus, filterSource, searchQuery, advancedConditions, advancedLogic]
   );
 
   const applySavedViewFilters = useCallback((filters: Record<string, any>) => {
     setFilterStatus(filters.filterStatus || []);
     setFilterSource(filters.filterSource || []);
-    setFilterAutomation(filters.filterAutomation || []);
-    setFilterTag(filters.filterTag || []);
-    setFilterCustomFields(filters.filterCustomFields || {});
     setSearchQuery(filters.searchQuery || '');
     setAdvancedConditions(filters.advancedConditions || []);
     setAdvancedLogic(filters.advancedLogic || 'AND');
@@ -468,9 +369,6 @@ export function Leads() {
       if (viewId === null) {
         setFilterStatus([]);
         setFilterSource([]);
-        setFilterAutomation([]);
-        setFilterTag([]);
-        setFilterCustomFields({});
         setSearchQuery('');
         setAdvancedConditions([]);
         setAdvancedLogic('AND');
@@ -598,10 +496,8 @@ export function Leads() {
         {selectedLeads.length > 0 && (
           <LeadBulkActions
             selectedCount={selectedLeads.length}
-            tags={tags}
             onClearSelection={() => setSelectedLeads([])}
             onChangeStatus={handleBulkChangeStatus}
-            onAddTag={handleBulkAddTag}
             onExportCSV={handleBulkExportCSV}
             onDelete={() => setDeleteDialogOpen(true)}
           />
@@ -639,24 +535,13 @@ export function Leads() {
           onFilterStatusChange={setFilterStatus}
           filterSource={filterSource}
           onFilterSourceChange={setFilterSource}
-          filterAutomation={filterAutomation}
-          onFilterAutomationChange={setFilterAutomation}
-          filterTag={filterTag}
-          onFilterTagChange={setFilterTag}
-          filterCustomFields={filterCustomFields}
-          onFilterCustomFieldsChange={setFilterCustomFields}
-          tags={tags}
-          customFields={customFields}
-          availableAutomations={availableAutomations}
           onImportClick={() => setImportModalOpen(true)}
-          onExportCurrentPage={handleExportLeads}
           onExportAllFiltered={handleExportAllFiltered}
           onExportServer={async (format) => {
             const filters: Record<string, string> = {};
-            if (filterStatus.length === 1) filters.status = mapStatusToBackend(filterStatus[0]);
-            if (filterSource.length === 1) filters.source = mapSourceToBackend(filterSource[0]);
+            if (filterStatus.length === 1) filters.status = filterStatus[0];
+            if (filterSource.length === 1) filters.source = filterSource[0];
             if (searchQuery) filters.search = searchQuery;
-            if (filterTag.length === 1) filters.tagId = filterTag[0];
             return apiClient.exportLeadsDownload(format, filters);
           }}
         />
@@ -669,8 +554,6 @@ export function Leads() {
               selectedLeads={selectedLeads}
               onSelectLead={handleSelectLead}
               onDeleteLead={(id) => setDeleteSingleLeadId(id)}
-              onScoreClick={(id) => setScoreLeadId(id)}
-              getTagById={getTagById}
             />
             <Pagination
               page={pagination.page}
@@ -688,15 +571,9 @@ export function Leads() {
             <LeadTable
               leads={filteredLeads}
               selectedLeads={selectedLeads}
-              customFields={customFields}
-              expandedLeads={expandedLeads}
               onSelectAll={handleSelectAll}
               onSelectLead={handleSelectLead}
               onDeleteLead={(id) => setDeleteSingleLeadId(id)}
-              onScoreClick={(id) => setScoreLeadId(id)}
-              onToggleExpansion={toggleLeadExpansion}
-              getTagById={getTagById}
-              getAutomationById={getAutomationById}
               onRowClick={(id) => openPanel('lead', id)}
             />
             <Pagination
@@ -794,13 +671,6 @@ export function Leads() {
         onImportComplete={() => refetch()}
       />
 
-      {/* Score Breakdown Modal */}
-      <ScoreBreakdownModal
-        leadId={scoreLeadId ?? ''}
-        open={!!scoreLeadId}
-        onClose={() => setScoreLeadId(null)}
-      />
-
       {/* Convert to Contact Dialog */}
       <AlertDialog
         open={convertLeadId !== null}
@@ -810,8 +680,8 @@ export function Leads() {
           <AlertDialogHeader>
             <AlertDialogTitle>Converter para Contato</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja converter este lead para contato? O status sera alterado para
-              WON e ele aparecera na aba "Contatos".
+              Tem certeza que deseja converter este lead para contato? Ele aparecera na aba
+              &quot;Contatos&quot;.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -838,7 +708,7 @@ export function Leads() {
             <AlertDialogTitle>Reverter para Lead</AlertDialogTitle>
             <AlertDialogDescription>
               Tem certeza que deseja reverter este contato para lead? Ele deixara de aparecer na aba
-              "Contatos".
+              &quot;Contatos&quot;.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

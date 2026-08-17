@@ -676,22 +676,36 @@ model Deal {
 // ============================================
 
 enum LeadStatus {
-  NEW
-  CONTACTED
-  QUALIFIED
-  PROPOSAL
-  NEGOTIATION
-  WON
-  LOST
+  NOVO
+  EM_ANDAMENTO
+  PAUSADO
+  CANCELADO
+  ENCERRADO
 }
 
 enum LeadSource {
-  WEBSITE
-  SOCIAL_MEDIA
-  REFERRAL
-  EMAIL
-  PHONE
-  OTHER
+  PROSPECCAO_ATIVA
+  PORTAL_NOTICIAS_LINKEDIN
+  EVENTO_FEIRA_SETORIAL
+  NETWORKING_PESSOAL
+  CLIENTE_RECORRENTE
+  INDICACAO_PARCEIROS
+  OUTROS
+}
+
+// Motivo obrigatório ao mover o lead para PAUSADO/CANCELADO/ENCERRADO.
+// Lista fixa definida pela área comercial (specs/leads-oportunidade-inteligencia-mercado.md).
+enum LeadStatusReason {
+  CONVERTIDO_EM_OPORTUNIDADE
+  PAUSADO_PELO_CLIENTE
+  PROJETO_SUSPENSO
+  SEM_ADERENCIA_TECNICA
+  CONCORRENTE_ESCOLHIDO
+  PRECO
+  PRAZO
+  DECISAO_INTERNA_CLIENTE
+  SEM_RETORNO
+  OUTRO
 }
 
 model Lead {
@@ -719,10 +733,27 @@ model Lead {
   isContact   Boolean   @default(false)
   convertedAt DateTime?
 
+  // Contato principal da oportunidade (pessoa do cliente) — outro Lead com
+  // isContact=true e mesma companyId. Obrigatório na criação manual (camada de
+  // aplicação); nullable no schema por causa de leads legados/captação pública.
+  contactId    String?
+  contactRef   Lead?   @relation("LeadPrimaryContact", fields: [contactId], references: [id], onDelete: SetNull)
+  contactLeads Lead[]  @relation("LeadPrimaryContact")
+
   // Status & Source
-  status LeadStatus @default(NEW)
-  source LeadSource @default(WEBSITE)
+  status LeadStatus @default(NOVO)
+  source LeadSource @default(OUTROS)
   score  Int        @default(0)
+
+  // Motivo da última transição para PAUSADO/CANCELADO/ENCERRADO.
+  // Limpo ao voltar para NOVO/EM_ANDAMENTO. Nota obrigatória quando OUTRO.
+  statusReason     LeadStatusReason?
+  statusReasonNote String?
+
+  // Campos de oportunidade (área comercial)
+  estimatedValue    Decimal? @db.Decimal(12, 2)
+  estimatedTimeline String?
+  probabilityGoGet  Int? // degraus fixos: 10 | 25 | 50 | 75 | 90 (validação Zod)
 
   // Email marketing opt-out (LGPD) — excluded from all current/future campaigns
   unsubscribed   Boolean   @default(false)
@@ -752,14 +783,15 @@ model Lead {
   updatedAt DateTime @updatedAt
 
   // Relations
-  tags                LeadTag[]
-  interactions        Interaction[]
-  tasks               Task[]
-  automationLogs      AutomationLog[]
-  deals               Deal[]
-  campaignRecipients  CampaignRecipient[]
-  roadmapStakeholders RoadmapStakeholder[]
-  dealContacts        DealContact[]
+  tags                      LeadTag[]
+  interactions              Interaction[]
+  tasks                     Task[]
+  automationLogs            AutomationLog[]
+  deals                     Deal[]
+  campaignRecipients        CampaignRecipient[]
+  roadmapStakeholders       RoadmapStakeholder[]
+  dealContacts              DealContact[]
+  interactionParticipations InteractionParticipant[]
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -770,6 +802,7 @@ model Lead {
   @@index([funnelColumnId])
   @@index([tenantId, isContact])
   @@index([tenantId, companyId])
+  @@index([contactId])
   @@index([tenantId, deletedAt])
   @@index([tenantId, importBatchId])
   @@index([tenantId, unsubscribed])
@@ -1032,6 +1065,20 @@ enum InteractionDirection {
   OUTBOUND
 }
 
+// Modalidade da reunião (atividade estruturada de lead)
+enum MeetingModality {
+  PRESENCIAL
+  ONLINE
+}
+
+// Motivo da ligação (atividade estruturada de lead)
+enum CallReason {
+  PRIMEIRO_CONTATO
+  SOLICITACAO_INFORMACOES
+  FOLLOW_UP
+  SUPORTE
+}
+
 enum CustomFieldType {
   TEXT
   NUMBER
@@ -1145,6 +1192,13 @@ model Interaction {
   content   String
   metadata  Json?
 
+  // Campos estruturados das atividades de lead (Reunião/Ligação) — validados
+  // por Zod na rota; substituem o uso de metadata livre para esses tipos.
+  location   String? // Reunião: local
+  modality   MeetingModality? // Reunião: presencial/online
+  callReason CallReason? // Ligação: motivo
+  occurredAt DateTime? // data/hora do evento (ordena a timeline; fallback createdAt)
+
   // Related entities
   automationId String?
   automation   Automation? @relation(fields: [automationId], references: [id], onDelete: SetNull)
@@ -1170,6 +1224,9 @@ model Interaction {
   /// Append-only: interactions are immutable communication records
   createdAt DateTime @default(now())
 
+  // Participantes (contatos da empresa) — Reunião/Ligação
+  participants InteractionParticipant[]
+
   @@index([tenantId])
   @@index([tenantId, leadId])
   @@index([tenantId, dealId])
@@ -1177,6 +1234,22 @@ model Interaction {
   @@index([tenantId, createdAt])
   @@index([tenantId, type])
   @@index([tenantId, importBatchId])
+}
+
+// Participante de uma atividade (Reunião/Ligação): junção interação ↔ contato
+// (Lead com isContact=true). Padrão espelhado de DealContact.
+model InteractionParticipant {
+  id            String      @id @default(uuid())
+  interactionId String
+  interaction   Interaction @relation(fields: [interactionId], references: [id], onDelete: Cascade)
+  leadId        String
+  lead          Lead        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
+
+  @@unique([interactionId, leadId])
+  @@index([interactionId])
+  @@index([leadId])
+  @@map("interaction_participants")
 }
 
 // ============================================
@@ -1271,6 +1344,7 @@ enum NotificationType {
   ATESTADO_PENDENCIA_OVERDUE
   ATESTADO_ANALISE_CONCLUIDA
   ATESTADO_RT_DESLIGADO
+  LEAD_REMINDER
   SYSTEM
 }
 
@@ -1783,6 +1857,9 @@ enum TaskType {
   REUNIAO
   EMAIL
   PROPOSTA
+  FOLLOW_UP
+  PREPARACAO_DOCUMENTO
+  VISITA_TECNICA
   OUTRO
 }
 
@@ -2388,6 +2465,8 @@ model Attachment {
   storageKey      String // db: id do AttachmentBlob; s3: object key
   dealId          String? // vínculo opcional
   companyId       String?
+  leadId          String? // vínculo opcional a lead (atividades de lead)
+  interactionId   String? // vínculo opcional à atividade (Reunião/Ligação)
   source          String    @default("UPLOAD") // UPLOAD | PROPOSAL | MEETING (áudio de reunião, P3)
   uploadedById    String?
   deletedAt       DateTime? // soft-delete (integra Lixeira P1)
@@ -2400,6 +2479,8 @@ model Attachment {
 
   @@index([tenantId, dealId])
   @@index([tenantId, companyId])
+  @@index([tenantId, leadId])
+  @@index([tenantId, interactionId])
   @@index([tenantId, deletedAt])
   @@map("attachments")
 }
