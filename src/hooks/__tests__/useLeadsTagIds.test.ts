@@ -87,6 +87,22 @@ describe('useLeads — tagIds enviados ao backend', () => {
     });
     expect(createLead.mock.calls[0][0].tagIds).toEqual([UUID_A]);
   });
+
+  it('shape CRU da API (linhas de LeadTag) envia o id da TAG, não o da junção', async () => {
+    // GET /leads/:id devolve tags como linhas de LeadTag:
+    // {id: <id da LINHA>, tagId, tag: {id}}. Mandar o id da linha apagaria as
+    // tags no PUT (uuid válido que não é Tag → FK violada no backend).
+    const { result } = renderHook(() => useLeads(), { wrapper });
+    await act(async () => {
+      await result.current.updateLead('l1', {
+        tags: [
+          { id: 'aaaaaaaa-0000-4000-8000-000000000001', tagId: UUID_A, tag: { id: UUID_A } },
+          { id: 'aaaaaaaa-0000-4000-8000-000000000002', tagId: UUID_B, tag: { id: UUID_B } },
+        ] as never,
+      });
+    });
+    expect(updateLead.mock.calls[0][1].tagIds).toEqual([UUID_A, UUID_B]);
+  });
 });
 
 /**

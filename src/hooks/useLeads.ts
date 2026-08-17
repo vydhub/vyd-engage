@@ -43,11 +43,20 @@ function vazioComoNull(v: unknown): string | null | undefined {
  * muito tempo: na rota, o enforceLimit do plano roda ANTES do parse, então o 403
  * do limite mascarava este 400. Aceitar os dois formatos aqui evita que qualquer
  * chamador futuro reintroduza o problema.
+ *
+ * ATENÇÃO à ORDEM dos fallbacks: o lead CRU de GET /leads/:id traz linhas de
+ * LeadTag `{id: <id da LINHA de junção>, tagId, tag: {id}}` — usar `t.id`
+ * primeiro mandaria o id da junção (uuid válido ≠ Tag) e o PUT apagaria as
+ * tags e cairia em violação de FK. Por isso: tag.id → tagId → id.
  */
 function toTagIds(tags: unknown): string[] {
   if (!Array.isArray(tags)) return [];
   return tags
-    .map((t) => (typeof t === 'string' ? t : ((t as { id?: string } | null)?.id ?? '')))
+    .map((t) => {
+      if (typeof t === 'string') return t;
+      const o = t as { id?: string; tagId?: string; tag?: { id?: string } } | null;
+      return o?.tag?.id ?? o?.tagId ?? o?.id ?? '';
+    })
     .filter((id): id is string => typeof id === 'string' && id.length > 0);
 }
 
