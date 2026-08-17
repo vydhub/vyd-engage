@@ -2,13 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../services/api/client';
 import { toast } from 'sonner';
-import { Lead } from '../types';
-import {
-  mapStatusToBackend,
-  mapSourceToBackend,
-  mapStatusFromBackend,
-  mapSourceFromBackend,
-} from '../utils/leadEnums';
+import { Lead, LeadCompanyRef, LeadContactRef } from '../types';
 import { useSocket } from './useSocket';
 import { handlePendingApproval } from '../lib/approvalResponse';
 
@@ -54,6 +48,7 @@ export interface LeadsFilters {
   search?: string;
   tagId?: string;
   assignedTo?: string;
+  companyId?: string;
   isContact?: string | boolean;
 }
 
@@ -68,14 +63,24 @@ interface ApiLead {
   phone?: string;
   company?: string;
   position?: string;
+  companyId?: string | null;
+  companyRef?: LeadCompanyRef | null;
+  contactId?: string | null;
+  contactRef?: LeadContactRef | null;
   status: string;
   source: string;
+  statusReason?: string | null;
+  statusReasonNote?: string | null;
+  estimatedValue?: number | string | null;
+  estimatedTimeline?: string | null;
+  probabilityGoGet?: number | null;
   score?: number;
   isContact?: boolean;
   convertedAt?: string | null;
   customFields?: Record<string, string | number | boolean | null>;
   notes?: string;
   assignedTo?: string;
+  assignedUser?: { id: string; name: string; email: string } | null;
   tags?: Array<ApiLeadTag | string>;
   createdAt?: string;
   updatedAt?: string;
@@ -95,11 +100,13 @@ function buildServerParams(filters?: LeadsFilters): Record<string, string | numb
   if (filters.search) serverParams.search = filters.search;
   if (filters.tagId) serverParams.tagId = filters.tagId;
   if (filters.assignedTo) serverParams.assignedTo = filters.assignedTo;
+  if (filters.companyId) serverParams.companyId = filters.companyId;
   if (filters.isContact !== undefined && filters.isContact !== '')
     serverParams.isContact = String(filters.isContact);
   return serverParams;
 }
 
+// Sem camada de mapeamento: a UI usa os enums do backend diretamente (spec req. 12)
 function transformLead(lead: ApiLead): Lead {
   return {
     id: lead.id,
@@ -108,14 +115,24 @@ function transformLead(lead: ApiLead): Lead {
     phone: lead.phone || '',
     company: lead.company || '',
     position: lead.position || '',
-    status: mapStatusFromBackend(lead.status) as Lead['status'],
-    source: mapSourceFromBackend(lead.source) as Lead['source'],
+    companyId: lead.companyId ?? null,
+    companyRef: lead.companyRef ?? null,
+    contactId: lead.contactId ?? null,
+    contactRef: lead.contactRef ?? null,
+    status: lead.status as Lead['status'],
+    source: lead.source as Lead['source'],
+    statusReason: (lead.statusReason as Lead['statusReason']) ?? null,
+    statusReasonNote: lead.statusReasonNote ?? null,
+    estimatedValue: lead.estimatedValue ?? null,
+    estimatedTimeline: lead.estimatedTimeline ?? null,
+    probabilityGoGet: lead.probabilityGoGet ?? null,
     score: lead.score || 0,
     isContact: lead.isContact || false,
     convertedAt: lead.convertedAt || null,
     customFields: lead.customFields || {},
     notes: lead.notes || '',
     assignedTo: lead.assignedTo || '',
+    assignedUser: lead.assignedUser ?? null,
     tags:
       lead.tags?.map((lt) => (typeof lt === 'string' ? lt : lt.tag?.id || lt.tagId || '')) || [],
     createdAt: lead.createdAt,
@@ -214,11 +231,19 @@ export function useLeads() {
           name: data.name || '',
           email: vazioComoAusente(data.email),
           phone: vazioComoAusente(data.phone),
-          company: vazioComoAusente(data.company),
           position: vazioComoAusente(data.position),
-          status: data.status ? mapStatusToBackend(data.status) : undefined,
-          source: data.source ? mapSourceToBackend(data.source) : undefined,
-          score: data.score || 0,
+          companyId: data.companyId || undefined,
+          contactId: data.contactId || undefined,
+          status: data.status || undefined,
+          source: data.source || undefined,
+          statusReason: data.statusReason || undefined,
+          statusReasonNote: vazioComoAusente(data.statusReasonNote ?? undefined),
+          estimatedValue:
+            data.estimatedValue !== undefined && data.estimatedValue !== null
+              ? Number(data.estimatedValue)
+              : undefined,
+          estimatedTimeline: vazioComoAusente(data.estimatedTimeline ?? undefined),
+          probabilityGoGet: data.probabilityGoGet ?? undefined,
           customFields: data.customFields || {},
           notes: vazioComoAusente(data.notes),
           assignedTo: vazioComoAusente(data.assignedTo),
@@ -243,11 +268,19 @@ export function useLeads() {
           name: data.name,
           email: vazioComoAusente(data.email),
           phone: vazioComoAusente(data.phone),
-          company: vazioComoAusente(data.company),
           position: vazioComoAusente(data.position),
-          status: data.status ? mapStatusToBackend(data.status) : undefined,
-          source: data.source ? mapSourceToBackend(data.source) : undefined,
-          score: data.score,
+          companyId: data.companyId || undefined,
+          contactId: data.contactId || undefined,
+          status: data.status || undefined,
+          source: data.source || undefined,
+          statusReason: data.statusReason || undefined,
+          statusReasonNote: vazioComoAusente(data.statusReasonNote ?? undefined),
+          estimatedValue:
+            data.estimatedValue !== undefined && data.estimatedValue !== null
+              ? Number(data.estimatedValue)
+              : undefined,
+          estimatedTimeline: vazioComoAusente(data.estimatedTimeline ?? undefined),
+          probabilityGoGet: data.probabilityGoGet ?? undefined,
           customFields: data.customFields,
           notes: vazioComoAusente(data.notes),
           assignedTo: vazioComoAusente(data.assignedTo),

@@ -580,6 +580,75 @@ class ApiClient {
     });
   }
 
+  /**
+   * Converte o lead em oportunidade (specs/leads-oportunidade req. 17-18):
+   * cria o Deal com os dados copiados e encerra o lead com motivo
+   * CONVERTIDO_EM_OPORTUNIDADE. Idempotente — se já convertido, devolve
+   * alreadyConverted=true com o deal existente.
+   */
+  async convertLeadToOpportunity(id: string) {
+    return this.request<{
+      status: number;
+      data: {
+        deal: { id: string; name: string };
+        lead?: Record<string, unknown>;
+        alreadyConverted: boolean;
+      };
+    }>(`/api/v1/leads/${id}/convert-to-opportunity`, { method: 'POST' });
+  }
+
+  /**
+   * Cadastro rápido de CONTATO (Lead com isContact=true) vinculado a uma
+   * empresa (specs/leads-oportunidade reqs. 4 e 36) — usado pelos quick-creates
+   * inline (formulário de lead e participantes de atividade).
+   */
+  async createLeadContact(data: {
+    name: string;
+    companyId: string;
+    position?: string;
+    email?: string;
+    phone?: string;
+  }) {
+    return this.request<{ status: number; data: Record<string, unknown> }>(
+      '/api/v1/leads/contacts',
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+  }
+
+  /**
+   * Transcreve um áudio (gravação ou arquivo) para texto via Whisper
+   * (specs/leads-oportunidade req. 44-45). Multipart campo `audio`, ≤ 25 MB.
+   */
+  async transcribeAudio(audio: Blob, fileName = 'gravacao.webm'): Promise<{ text: string }> {
+    const csrfToken = this.getCsrfToken();
+    const headers: Record<string, string> = {};
+    if (csrfToken) headers['x-csrf-token'] = csrfToken;
+    const formData = new FormData();
+    formData.append('audio', audio, fileName);
+    const response = await fetch(`${this.baseURL}/api/v1/ai/transcribe`, {
+      method: 'POST',
+      headers,
+      body: formData,
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      let errorData: Record<string, unknown>;
+      try {
+        errorData = await response.json();
+      } catch {
+        errorData = { error: response.statusText || 'Falha na transcrição' };
+      }
+      const message =
+        (errorData.error as string) || (errorData.message as string) || 'Falha na transcrição';
+      throw new ApiError(message, response.status, errorData);
+    }
+    const json = await response.json();
+    return json.data ?? json;
+  }
+
   async importLeads(data: { leads: Record<string, unknown>[]; skipDuplicateEmails?: boolean }) {
     return this.request<{ imported: number; skipped: number }>('/api/v1/leads/import', {
       method: 'POST',
@@ -2997,7 +3066,7 @@ class ApiClient {
    */
   async uploadAttachment(
     file: File,
-    link: { dealId?: string; companyId?: string }
+    link: { dealId?: string; companyId?: string; leadId?: string; interactionId?: string }
   ): Promise<{ status: number; data: Attachment }> {
     const csrfToken = this.getCsrfToken();
     const headers: Record<string, string> = {};
@@ -3006,6 +3075,8 @@ class ApiClient {
     formData.append('file', file);
     if (link.dealId) formData.append('dealId', link.dealId);
     if (link.companyId) formData.append('companyId', link.companyId);
+    if (link.leadId) formData.append('leadId', link.leadId);
+    if (link.interactionId) formData.append('interactionId', link.interactionId);
     const response = await fetch(`${this.baseURL}/api/v1/attachments`, {
       method: 'POST',
       headers,
@@ -3026,11 +3097,18 @@ class ApiClient {
     return response.json();
   }
 
-  /** Lista metadados de anexos (sem bytes) de um deal OU empresa. */
-  async getAttachments(link: { dealId?: string; companyId?: string }) {
+  /** Lista metadados de anexos (sem bytes) de um deal, empresa, lead ou atividade. */
+  async getAttachments(link: {
+    dealId?: string;
+    companyId?: string;
+    leadId?: string;
+    interactionId?: string;
+  }) {
     const params = new URLSearchParams();
     if (link.dealId) params.set('dealId', link.dealId);
     if (link.companyId) params.set('companyId', link.companyId);
+    if (link.leadId) params.set('leadId', link.leadId);
+    if (link.interactionId) params.set('interactionId', link.interactionId);
     const qs = params.toString();
     return this.request<{ status: number; data: Attachment[] }>(
       `/api/v1/attachments${qs ? `?${qs}` : ''}`

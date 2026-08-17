@@ -1,15 +1,20 @@
 import { useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
-import { ExternalLink, Phone, Mail, User, Calendar } from 'lucide-react';
+import { ExternalLink, Phone, Mail, User, Calendar, Building2, Contact } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { LeadStatusBadge } from '@/components/LeadStatusBadge';
-import { LeadScoreBadge } from '@/components/LeadScoreBadge';
+import { LeadSourceBadge } from '@/components/LeadSourceBadge';
 import { useSidePanel } from '@/contexts/SidePanelContext';
 import { apiClient } from '@/services/api/client';
 
+const currencyBRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+// Painel do lead na régua "Leads como Oportunidade" (specs/leads-oportunidade
+// reqs. 9-10, 22-23): valor estimado + probabilidade Go×Get no lugar do score,
+// empresa/contato/responsável vindos do backend, sem contagem de tags.
 function LeadPanelContent({ id }: { id: string }) {
   const navigate = useNavigate();
   const { closePanel } = useSidePanel();
@@ -35,45 +40,92 @@ function LeadPanelContent({ id }: { id: string }) {
 
   if (!lead) return null;
 
+  const companyName = lead.companyRef?.name || lead.company || null;
+  const hasCompanyLink = Boolean(lead.companyRef || lead.companyId);
+  const estimatedValue =
+    lead.estimatedValue !== null && lead.estimatedValue !== undefined && lead.estimatedValue !== ''
+      ? Number(lead.estimatedValue)
+      : null;
+
   return (
     <div className="p-6 space-y-5">
       <div>
         <h3 className="text-lg font-semibold text-gray-900 leading-snug">{lead.name}</h3>
-        {lead.company && <p className="text-sm text-gray-500 mt-0.5">{lead.company}</p>}
-        {lead.position && <p className="text-xs text-gray-400 mt-0.5">{lead.position}</p>}
+        {companyName && (
+          <p className="text-sm text-gray-500 mt-0.5 flex items-center gap-1.5">
+            <Building2 size={13} className="shrink-0 text-gray-400" />
+            {companyName}
+          </p>
+        )}
+        {/* Lead legado sem vínculo de empresa/contato (caso extremo 1) */}
+        {!hasCompanyLink && (
+          <Badge
+            variant="outline"
+            className="mt-1.5 text-xs bg-amber-50 text-amber-700 border-amber-200"
+          >
+            Vínculo pendente
+          </Badge>
+        )}
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
-        <LeadScoreBadge score={lead.score || 0} />
         <LeadStatusBadge status={lead.status} />
+        <LeadSourceBadge source={lead.source} />
       </div>
 
-      <div className="space-y-2.5">
-        {lead.phone && (
-          <div className="flex items-center gap-2.5 text-sm text-gray-600">
-            <Phone size={14} className="shrink-0 text-gray-400" />
-            <span>{lead.phone}</span>
-          </div>
-        )}
-        {lead.email && (
-          <div className="flex items-center gap-2.5 text-sm text-gray-600">
-            <Mail size={14} className="shrink-0 text-gray-400" />
-            <span className="truncate">{lead.email}</span>
-          </div>
-        )}
-        {lead.assignedUser && (
-          <div className="flex items-center gap-2.5 text-sm text-gray-600">
-            <User size={14} className="shrink-0 text-gray-400" />
-            <span>{lead.assignedUser.name}</span>
-          </div>
-        )}
+      {/* Oportunidade: valor estimado + probabilidade Go×Get (req. 9) */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-lg border border-gray-200 p-3">
+          <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">
+            Valor estimado
+          </p>
+          <p className="text-sm font-semibold text-gray-900">
+            {estimatedValue !== null && !Number.isNaN(estimatedValue)
+              ? currencyBRL.format(estimatedValue)
+              : '—'}
+          </p>
+        </div>
+        <div className="rounded-lg border border-gray-200 p-3">
+          <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">
+            Prob. Go×Get
+          </p>
+          <p className="text-sm font-semibold text-gray-900">
+            {lead.probabilityGoGet != null ? `${lead.probabilityGoGet}%` : '—'}
+          </p>
+        </div>
       </div>
 
-      {lead.tags && lead.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          <Badge variant="secondary" className="text-xs">
-            {lead.tags.length} tag{lead.tags.length !== 1 ? 's' : ''}
-          </Badge>
+      {/* Contato vinculado — dados de pessoa vêm do Lead-contato (req. 20) */}
+      {lead.contactRef && (
+        <div className="rounded-lg border border-gray-200 p-3 space-y-1.5">
+          <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Contato</p>
+          <div className="flex items-center gap-2 text-sm text-gray-900">
+            <Contact size={14} className="shrink-0 text-gray-400" />
+            <span className="font-medium">{lead.contactRef.name}</span>
+            {lead.contactRef.position && (
+              <span className="text-gray-500">· {lead.contactRef.position}</span>
+            )}
+          </div>
+          {lead.contactRef.phone && (
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <Phone size={13} className="shrink-0 text-gray-400" />
+              <span>{lead.contactRef.phone}</span>
+            </div>
+          )}
+          {lead.contactRef.email && (
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <Mail size={13} className="shrink-0 text-gray-400" />
+              <span className="truncate">{lead.contactRef.email}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Responsável comercial (req. 10 — assignedUser vem do backend) */}
+      {lead.assignedUser && (
+        <div className="flex items-center gap-2.5 text-sm text-gray-600">
+          <User size={14} className="shrink-0 text-gray-400" />
+          <span>{lead.assignedUser.name}</span>
         </div>
       )}
 
@@ -84,7 +136,9 @@ function LeadPanelContent({ id }: { id: string }) {
           </p>
           <p className="text-gray-600 line-clamp-2">{lead.interactions[0].content}</p>
           <p className="text-xs text-gray-400 mt-1">
-            {new Date(lead.interactions[0].timestamp).toLocaleDateString('pt-BR')}
+            {new Date(
+              lead.interactions[0].occurredAt || lead.interactions[0].createdAt
+            ).toLocaleDateString('pt-BR')}
           </p>
         </div>
       )}
@@ -131,10 +185,7 @@ function DealPanelContent({ id }: { id: string }) {
 
   if (!deal) return null;
 
-  const valueFormatted = new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-  }).format(deal.value || 0);
+  const valueFormatted = currencyBRL.format(deal.value || 0);
 
   return (
     <div className="p-6 space-y-5">
