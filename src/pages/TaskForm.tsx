@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { Header } from '../components/Header';
 import { Button } from '../components/ui/button';
@@ -14,6 +14,8 @@ import {
 } from '../components/ui/select';
 import { Task } from '../types';
 import { useTasks } from '../hooks/useTasks';
+import { useFormDraft } from '../hooks/useFormDraft';
+import { TASK_DRAFT_PREFIX } from '../utils/draftKeys';
 import { useLeads } from '../hooks/useLeads';
 import { ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
@@ -31,14 +33,23 @@ export function TaskForm() {
   const { leads } = useLeads();
 
   const [task, setTask] = useState<Task | null>(null);
-  const [formData, setFormData] = useState({
-    leadId: leadIdParam || '',
-    title: '',
-    description: '',
-    dueDate: new Date().toISOString().split('T')[0],
-    dueTime: '09:00',
-    priority: 'MEDIUM' as Task['priority'],
-  });
+  // Rascunho por rota: sair para outra aba do sistema e voltar não pode apagar
+  // o que já foi digitado (chave 'task.new' na criação, 'task.<id>' na edição).
+  const initialFormData = useMemo(
+    () => ({
+      leadId: leadIdParam || '',
+      title: '',
+      description: '',
+      dueDate: new Date().toISOString().split('T')[0],
+      dueTime: '09:00',
+      priority: 'MEDIUM' as Task['priority'],
+    }),
+    [leadIdParam]
+  );
+  const [formData, setFormData, draft] = useFormDraft(
+    id ? `${TASK_DRAFT_PREFIX}${id}` : `${TASK_DRAFT_PREFIX}new`,
+    initialFormData
+  );
   const { fieldErrors, touchedFields, handleBlur, handleChange, validateAll, formRef } =
     useFormValidation({ schema: taskFormSchema });
   const autoFocusRef = useAutoFocus<HTMLDivElement>(!id);
@@ -49,6 +60,9 @@ export function TaskForm() {
       if (foundTask) {
         // eslint-disable-next-line react-hooks/set-state-in-effect -- sincroniza task/formData a partir da tarefa carregada (tasks) pelo id da rota
         setTask(foundTask);
+        // Rascunho restaurado tem precedência: sobrescrever aqui apagaria a
+        // edição em andamento assim que a lista de tarefas chegasse do servidor.
+        if (draft.restored) return;
         const dueDate = foundTask.dueDate ? new Date(foundTask.dueDate) : new Date();
         setFormData({
           leadId: foundTask.leadId?.toString() || '',
@@ -97,6 +111,7 @@ export function TaskForm() {
           status: 'PENDING',
         });
       }
+      draft.clear(); // salvou: o rascunho não deve reaparecer
       navigate('/app/tasks');
     } catch (error) {
       console.error('Erro ao salvar tarefa:', error);
@@ -243,7 +258,14 @@ export function TaskForm() {
             </div>
 
             <div className="flex justify-end gap-3 pt-4 border-t border-gray-300 mt-6">
-              <Button variant="outline" type="button" onClick={() => navigate('/app/tasks')}>
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => {
+                  draft.clear(); // cancelar é decisão explícita: descarta o rascunho
+                  navigate('/app/tasks');
+                }}
+              >
                 Cancelar
               </Button>
               <Button onClick={handleSave} className="bg-primary hover:bg-primary-dark">

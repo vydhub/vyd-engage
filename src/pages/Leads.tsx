@@ -30,6 +30,8 @@ import {
   notifyPendingApproval,
 } from '../lib/approvalResponse';
 import { useLeads } from '../hooks/useLeads';
+import { DraftResumeBanner } from '../components/DraftResumeBanner';
+import { LEAD_DRAFT_PREFIX } from '../utils/draftKeys';
 import { useSavedViews } from '../hooks/useSavedViews';
 import { SavedViewsBar } from '../components/filters/SavedViewsBar';
 import {
@@ -502,6 +504,16 @@ export function Leads() {
             onDelete={() => setDeleteDialogOpen(true)}
           />
         )}
+
+        <DraftResumeBanner
+          prefix={LEAD_DRAFT_PREFIX}
+          entityLabel="lead"
+          toRoute={(key) => {
+            const draftId = key.slice(LEAD_DRAFT_PREFIX.length);
+            return draftId === 'new' ? '/app/leads/new' : `/app/leads/${draftId}/edit`;
+          }}
+          describe={(v) => (v.name as string) || undefined}
+        />
 
         {/* Saved Views Bar */}
         <SavedViewsBar

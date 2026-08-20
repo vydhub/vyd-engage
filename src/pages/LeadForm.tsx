@@ -11,6 +11,8 @@ import { CommentsSection } from '../components/CommentsSection';
 import { WhatsAppSendPanel } from '../components/lead/WhatsAppSendPanel';
 import { EmailSendPanel } from '../components/lead/EmailSendPanel';
 import { useLeads } from '../hooks/useLeads';
+import { useFormDraft } from '../hooks/useFormDraft';
+import { LEAD_DRAFT_PREFIX } from '../utils/draftKeys';
 import { toast } from 'sonner';
 import {
   LeadOpportunityFields,
@@ -34,7 +36,12 @@ export function LeadForm() {
   const { addNotification } = useNotifications();
   const { createLead, updateLead } = useLeads();
   const [lead, setLead] = useState<Lead | null>(null);
-  const [values, setValues] = useState<LeadOpportunityValues>(emptyLeadOpportunityValues());
+  // Rascunho por rota (mesma mecânica de Tarefas): navegar para outra aba do
+  // sistema e voltar preserva o que já foi preenchido.
+  const [values, setValues, draft] = useFormDraft<LeadOpportunityValues>(
+    id ? `${LEAD_DRAFT_PREFIX}${id}` : `${LEAD_DRAFT_PREFIX}new`,
+    emptyLeadOpportunityValues()
+  );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- shape cru da API de interações
@@ -56,7 +63,9 @@ export function LeadForm() {
         const data = ((raw as { data?: unknown }).data ?? raw) as Lead;
         if (cancelled) return;
         setLead(data);
-        setValues(leadToOpportunityValues(data));
+        // Rascunho restaurado tem precedência sobre o dado do servidor: sem
+        // isto, a resposta do GET apagaria a edição em andamento.
+        if (!draft.restored) setValues(leadToOpportunityValues(data));
         setErrors({});
 
         try {
@@ -107,6 +116,7 @@ export function LeadForm() {
           link: `/app/leads`,
         });
       }
+      draft.clear(); // salvou: o rascunho não deve reaparecer
       navigate('/app/leads');
     } catch (error) {
       // useLeads já exibe o toast com a mensagem do backend (ex.: vínculos
@@ -172,7 +182,10 @@ export function LeadForm() {
                     <Button
                       variant="outline"
                       type="button"
-                      onClick={() => navigate('/app/leads')}
+                      onClick={() => {
+                        draft.clear(); // cancelar é decisão explícita
+                        navigate('/app/leads');
+                      }}
                       disabled={saving}
                     >
                       Cancelar

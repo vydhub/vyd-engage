@@ -18,7 +18,7 @@ const PRIORITY_LABELS: Record<string, string> = {
 };
 
 const PRIORITY_BADGE: Record<string, string> = {
-  URGENT: 'bg-red-100 text-red-700',
+  URGENT: 'bg-destructive/15 text-destructive',
   HIGH: 'bg-orange-100 text-orange-700',
   MEDIUM: 'bg-yellow-100 text-yellow-700',
   LOW: 'bg-blue-100 text-blue-700',
@@ -84,9 +84,9 @@ export function CalendarAgendaView({
                           isCompleted
                             ? 'bg-gray-400'
                             : task.priority === 'URGENT'
-                              ? 'bg-red-500'
+                              ? 'bg-destructive/100'
                               : task.priority === 'HIGH'
-                                ? 'bg-orange-500'
+                                ? 'bg-warning/100'
                                 : task.priority === 'MEDIUM'
                                   ? 'bg-yellow-400'
                                   : 'bg-blue-400'

@@ -13,6 +13,8 @@ import {
 } from '../components/TaskCard';
 import { PageSkeleton } from '../components/PageSkeleton';
 import { useTasks } from '../hooks/useTasks';
+import { DraftResumeBanner } from '../components/DraftResumeBanner';
+import { TASK_DRAFT_PREFIX } from '../utils/draftKeys';
 import { Task } from '../types';
 import {
   Plus,
@@ -333,9 +335,9 @@ export function Tasks() {
             isCompleted
               ? 'bg-gray-100 border-gray-300 opacity-60'
               : isOverdue
-                ? 'bg-red-50 border-red-200'
+                ? 'bg-destructive/10 border-destructive/40'
                 : isDueToday
-                  ? 'bg-yellow-50 border-yellow-200'
+                  ? 'bg-warning/10 border-warning/40'
                   : 'bg-gray-50 border-gray-300'
           }
         `}
@@ -377,7 +379,7 @@ export function Tasks() {
         <div className="flex items-center gap-2 pl-7 flex-wrap">
           {/* Due date with a11y icon */}
           <span
-            className={`text-xs inline-flex items-center gap-1 ${isOverdue ? 'text-red-600 font-medium' : isDueToday ? 'text-yellow-600 font-medium' : 'text-gray-500'}`}
+            className={`text-xs inline-flex items-center gap-1 ${isOverdue ? 'text-destructive font-medium' : isDueToday ? 'text-yellow-600 font-medium' : 'text-gray-500'}`}
           >
             {isOverdue ? (
               <>
@@ -427,7 +429,7 @@ export function Tasks() {
             variant="ghost"
             size="sm"
             onClick={() => setDeletingTask(task)}
-            className="h-8 px-2 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+            className="h-8 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
             aria-label="Deletar tarefa"
           >
             <Trash2 size={14} className="mr-1" />
@@ -490,6 +492,16 @@ export function Tasks() {
 
       <div className="p-8 overflow-visible">
         {/* Filters */}
+        <DraftResumeBanner
+          prefix={TASK_DRAFT_PREFIX}
+          entityLabel="tarefa"
+          toRoute={(key) => {
+            const id = key.slice(TASK_DRAFT_PREFIX.length);
+            return id === 'new' ? '/app/tasks/new' : `/app/tasks/${id}/edit`;
+          }}
+          describe={(values) => (values.title as string) || undefined}
+        />
+
         <div className="bg-gray-50 rounded-lg p-4 shadow-sm border border-gray-300 mb-6 overflow-visible relative z-10">
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex-1 min-w-[200px]">
@@ -686,7 +698,7 @@ export function Tasks() {
             {renderTaskGroup(
               'Tarefas Vencidas',
               groupedTasks.overdue,
-              'text-red-600',
+              'text-destructive',
               <AlertCircle size={20} />
             )}
 
