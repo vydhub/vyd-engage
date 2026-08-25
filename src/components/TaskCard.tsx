@@ -96,7 +96,7 @@ export const getStatusInfo = (status: Task['status']) => {
       return {
         icon: <XCircle size={12} className="inline mr-0.5" aria-hidden="true" />,
         label: 'Cancelada',
-        className: 'bg-red-100 text-red-600 border-red-200',
+        className: 'bg-destructive/15 text-destructive border-destructive/30',
       };
     default:
       return { icon: null, label: status, className: 'bg-gray-100 text-gray-700 border-gray-200' };
@@ -122,14 +122,14 @@ export function TaskCard({
     <div
       className={`
         p-4 border rounded-lg transition-all
-        ${selected ? 'bg-blue-50 border-blue-300' : ''}
+        ${selected ? 'bg-primary/10 border-primary/40' : ''}
         ${
           isCompleted
             ? 'bg-gray-100 border-gray-300 opacity-60'
             : isOverdue
-              ? 'bg-red-50 border-red-200'
+              ? 'bg-destructive/10 border-destructive/40'
               : isDueToday
-                ? 'bg-yellow-50 border-yellow-200'
+                ? 'bg-warning/10 border-warning/40'
                 : 'bg-card border-gray-300 hover:shadow-md'
         }
       `}
@@ -175,10 +175,10 @@ export function TaskCard({
               </button>
               <button
                 onClick={onDelete}
-                className="p-1 hover:bg-red-50 rounded transition-colors"
+                className="p-1 hover:bg-destructive/10 rounded transition-colors"
                 aria-label="Deletar tarefa"
               >
-                <Trash2 size={14} className="text-red-600" />
+                <Trash2 size={14} className="text-destructive" />
               </button>
             </div>
           </div>
@@ -199,7 +199,7 @@ export function TaskCard({
               <Calendar
                 size={14}
                 className={
-                  isOverdue ? 'text-red-600' : isDueToday ? 'text-yellow-600' : 'text-gray-600'
+                  isOverdue ? 'text-destructive' : isDueToday ? 'text-yellow-600' : 'text-gray-600'
                 }
               />
               <span
@@ -207,7 +207,7 @@ export function TaskCard({
                   text-xs
                   ${
                     isOverdue
-                      ? 'text-red-600 font-medium'
+                      ? 'text-destructive font-medium'
                       : isDueToday
                         ? 'text-yellow-600 font-medium'
                         : 'text-gray-600'

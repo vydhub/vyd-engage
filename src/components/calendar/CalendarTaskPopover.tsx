@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Edit2, CheckCircle, RotateCcw, Trash2, Calendar } from 'lucide-react';
 
 const PRIORITY_BADGE: Record<string, { label: string; className: string }> = {
-  URGENT: { label: 'Urgente', className: 'bg-red-100 text-red-700' },
+  URGENT: { label: 'Urgente', className: 'bg-destructive/15 text-destructive' },
   HIGH: { label: 'Alta', className: 'bg-orange-100 text-orange-700' },
   MEDIUM: { label: 'Média', className: 'bg-yellow-100 text-yellow-700' },
   LOW: { label: 'Baixa', className: 'bg-blue-100 text-blue-700' },
@@ -105,7 +105,7 @@ export function CalendarTaskPopover({
           <Button
             variant="outline"
             size="sm"
-            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+            className="text-destructive hover:text-destructive hover:bg-destructive/10"
             onClick={() => {
               onDelete(task);
               onClose();
