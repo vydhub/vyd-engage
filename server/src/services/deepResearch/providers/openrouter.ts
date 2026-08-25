@@ -17,6 +17,26 @@ function apiKey(): string {
 }
 
 /**
+ * Teto de tokens de SAÍDA por relatório.
+ *
+ * Sem `max_tokens` explícito, o OpenRouter aplica o default do modelo — e era
+ * baixo demais para um relatório de inteligência de mercado: as respostas
+ * paravam no meio da frase por volta de 65-100k caracteres. O default subiu de
+ * 32k para 48k tokens quando o template de Segmento foi expandido para 11
+ * capítulos (histórico de preços, censo de empresas, matriz de screening…) —
+ * folga para o relatório inteiro (~180k caracteres) sem virar cheque em branco.
+ *
+ * Ajustável por env sem deploy: OPENROUTER_MAX_OUTPUT_TOKENS. Se o modelo
+ * configurado aceitar menos que o pedido, o provedor corta para o máximo dele —
+ * por isso o truncamento continua sendo DETECTADO (finish_reason), não presumido
+ * como resolvido.
+ */
+function maxOutputTokens(): number {
+  const raw = parseInt(process.env.OPENROUTER_MAX_OUTPUT_TOKENS || '', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 48000;
+}
+
+/**
  * Parseia um chunk SSE da OpenRouter, acumulando conteúdo e fontes. As fontes
  * chegam em dois formatos possíveis e são ACUMULADAS (dedup por url):
  * - OpenRouter/OpenAI: `annotations[].url_citation` — chegam 1 por chunk em
@@ -25,12 +45,24 @@ function apiKey(): string {
  */
 export function applyChunk(
   json: any,
-  acc: { markdown: string; citations: string[]; searchResults: ResearchSource[] }
+  acc: {
+    markdown: string;
+    citations: string[];
+    searchResults: ResearchSource[];
+    finishReason?: string;
+  }
 ): void {
   const choice = json?.choices?.[0];
   const delta = choice?.delta;
   if (typeof delta?.content === 'string') acc.markdown += delta.content;
   if (Array.isArray(json?.citations)) acc.citations = json.citations;
+
+  // O motivo da parada só chega no ÚLTIMO chunk (nos anteriores vem null), e é
+  // o único jeito de saber que o texto foi cortado por limite ('length') em vez
+  // de ter terminado ('stop'). Sem isto o relatório vinha decapitado e era
+  // gravado como COMPLETED.
+  const fr = choice?.finish_reason ?? choice?.finishReason;
+  if (typeof fr === 'string' && fr) acc.finishReason = fr;
 
   const annotations = delta?.annotations || choice?.message?.annotations || json?.annotations;
   const fromAnnotations: ResearchSource[] = Array.isArray(annotations)
@@ -73,6 +105,7 @@ export const openrouterProvider: ResearchProvider = {
         model: model(),
         messages: [{ role: 'user', content: prompt }],
         stream: true,
+        max_tokens: maxOutputTokens(),
       }),
     });
 
@@ -81,7 +114,12 @@ export const openrouterProvider: ResearchProvider = {
       return { status: 'failed', error: `OpenRouter ${res.status}: ${b.slice(0, 300)}` };
     }
 
-    const acc = { markdown: '', citations: [] as string[], searchResults: [] as ResearchSource[] };
+    const acc = {
+      markdown: '',
+      citations: [] as string[],
+      searchResults: [] as ResearchSource[],
+      finishReason: undefined as string | undefined,
+    };
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -107,15 +145,28 @@ export const openrouterProvider: ResearchProvider = {
     const markdown = acc.markdown.trim();
     if (!markdown) return { status: 'failed', error: 'OpenRouter retornou conteúdo vazio.' };
     const sources = acc.searchResults.length ? acc.searchResults.map((s) => s.url) : acc.citations;
-    logger.info('Deep Research concluído (openrouter)', {
-      chars: markdown.length,
-      fontes: sources.length,
-    });
+    const truncated = acc.finishReason === 'length';
+
+    // Truncado NÃO é falha: o conteúdo recebido é válido e vale mais que nada.
+    // Entregamos o relatório e sinalizamos — quem consome decide o que mostrar.
+    logger[truncated ? 'warn' : 'info'](
+      truncated
+        ? 'Deep Research TRUNCADO por limite de saída (openrouter)'
+        : 'Deep Research concluído (openrouter)',
+      {
+        chars: markdown.length,
+        fontes: sources.length,
+        finishReason: acc.finishReason ?? 'desconhecido',
+        maxTokens: maxOutputTokens(),
+      }
+    );
     return {
       status: 'completed',
       markdown,
       sources: Array.from(new Set(sources)),
       searchResults: acc.searchResults,
+      truncated,
+      finishReason: acc.finishReason,
     };
   },
 };

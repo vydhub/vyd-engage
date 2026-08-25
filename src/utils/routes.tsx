@@ -38,9 +38,6 @@ function guard(element: ReactNode, roles: string[]) {
 // Public pages
 const LandingPage = lazyNamed(() => import('../pages/LandingPage'), 'LandingPage');
 const Login = lazyNamed(() => import('../pages/Login'), 'Login');
-const Register = lazyNamed(() => import('../pages/Register'), 'Register');
-const ForgotPassword = lazyNamed(() => import('../pages/ForgotPassword'), 'ForgotPassword');
-const ResetPassword = lazyNamed(() => import('../pages/ResetPassword'), 'ResetPassword');
 const Onboarding = lazyNamed(() => import('../pages/Onboarding'), 'Onboarding');
 const PublicForm = lazyNamed(() => import('../pages/PublicForm'), 'PublicForm');
 const PublicSchedule = lazyNamed(() => import('../pages/PublicSchedule'), 'PublicSchedule');
@@ -112,18 +109,6 @@ export const router = createBrowserRouter([
   {
     path: '/login',
     element: Login,
-  },
-  {
-    path: '/register',
-    element: Register,
-  },
-  {
-    path: '/forgot-password',
-    element: ForgotPassword,
-  },
-  {
-    path: '/reset-password',
-    element: ResetPassword,
   },
   {
     path: '/onboarding',

@@ -1,3 +1,4 @@
+import { AlertTriangle } from 'lucide-react';
 import { ReportCover } from './ReportCover';
 import { ReportRenderer } from './ReportRenderer';
 import { ReportSources } from './ReportSources';
@@ -13,6 +14,8 @@ interface ReportPrintableProps {
   toc: TocItem[];
   searchResults: ResearchSource[];
   sourceCount: number;
+  /** Relatório cortado por limite do motor — o PDF precisa dizer isso. */
+  truncated?: boolean;
 }
 
 /**
@@ -38,9 +41,22 @@ export function ReportPrintable({
   toc,
   searchResults,
   sourceCount,
+  truncated = false,
 }: ReportPrintableProps) {
   return (
     <div className="report-print report-viewer">
+      {/* Antes da capa, de propósito: quem abrir o PDF precisa saber que o
+          documento está incompleto antes de ler qualquer conclusão. */}
+      {truncated && (
+        <div className="report-viewer__truncated">
+          <AlertTriangle size={16} aria-hidden />
+          <div>
+            <strong>Relatório incompleto.</strong> O motor de pesquisa atingiu o limite de
+            tamanho da resposta e o texto foi interrompido antes da conclusão.
+          </div>
+        </div>
+      )}
+
       <ReportCover
         variant="full"
         title={title}

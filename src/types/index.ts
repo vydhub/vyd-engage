@@ -3,21 +3,87 @@
 // Aligned with Prisma UserRole enum (hierarquia ADMIN > GESTOR > USER > VIEWER)
 export type UserRole = 'ADMIN' | 'GESTOR' | 'USER' | 'VIEWER';
 
-// Aligned with Prisma LeadStatus enum
-export type LeadStatus =
-  | 'NEW'
-  | 'CONTACTED'
-  | 'QUALIFIED'
-  | 'PROPOSAL'
-  | 'NEGOTIATION'
-  | 'WON'
-  | 'LOST';
+// Aligned with Prisma LeadStatus enum (régua "Leads como Oportunidade")
+export type LeadStatus = 'NOVO' | 'EM_ANDAMENTO' | 'PAUSADO' | 'CANCELADO' | 'ENCERRADO';
 
 // Aligned with Prisma LeadSource enum
-export type LeadSource = 'WEBSITE' | 'SOCIAL_MEDIA' | 'REFERRAL' | 'EMAIL' | 'PHONE' | 'OTHER';
+export type LeadSource =
+  | 'PROSPECCAO_ATIVA'
+  | 'PORTAL_NOTICIAS_LINKEDIN'
+  | 'EVENTO_FEIRA_SETORIAL'
+  | 'NETWORKING_PESSOAL'
+  | 'CLIENTE_RECORRENTE'
+  | 'INDICACAO_PARCEIROS'
+  | 'OUTROS';
+
+// Aligned with Prisma LeadStatusReason enum — motivo obrigatório ao
+// pausar/cancelar/encerrar (specs/leads-oportunidade req. 13)
+export type LeadStatusReason =
+  | 'CONVERTIDO_EM_OPORTUNIDADE'
+  | 'PAUSADO_PELO_CLIENTE'
+  | 'PROJETO_SUSPENSO'
+  | 'SEM_ADERENCIA_TECNICA'
+  | 'CONCORRENTE_ESCOLHIDO'
+  | 'PRECO'
+  | 'PRAZO'
+  | 'DECISAO_INTERNA_CLIENTE'
+  | 'SEM_RETORNO'
+  | 'OUTRO';
+
+export const LEAD_STATUS_LABELS: Record<LeadStatus, string> = {
+  NOVO: 'Novo',
+  EM_ANDAMENTO: 'Em Andamento',
+  PAUSADO: 'Pausado',
+  CANCELADO: 'Cancelado',
+  ENCERRADO: 'Encerrado',
+};
+
+export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
+  PROSPECCAO_ATIVA: 'Prospecção ativa',
+  PORTAL_NOTICIAS_LINKEDIN: 'Portal de Notícias/LinkedIn',
+  EVENTO_FEIRA_SETORIAL: 'Evento/Feira setorial',
+  NETWORKING_PESSOAL: 'Networking pessoal',
+  CLIENTE_RECORRENTE: 'Cliente recorrente',
+  INDICACAO_PARCEIROS: 'Indicação de parceiros',
+  OUTROS: 'Outros',
+};
+
+export const LEAD_STATUS_REASON_LABELS: Record<LeadStatusReason, string> = {
+  CONVERTIDO_EM_OPORTUNIDADE: 'Convertido em oportunidade',
+  PAUSADO_PELO_CLIENTE: 'Pausado pelo cliente',
+  PROJETO_SUSPENSO: 'Projeto suspenso',
+  SEM_ADERENCIA_TECNICA: 'Sem aderência técnica',
+  CONCORRENTE_ESCOLHIDO: 'Concorrente escolhido',
+  PRECO: 'Preço',
+  PRAZO: 'Prazo',
+  DECISAO_INTERNA_CLIENTE: 'Decisão interna do cliente',
+  SEM_RETORNO: 'Sem retorno',
+  OUTRO: 'Outro',
+};
+
+/** Status terminais (exigem motivo na transição) */
+export const TERMINAL_LEAD_STATUSES: LeadStatus[] = ['PAUSADO', 'CANCELADO', 'ENCERRADO'];
+
+/** Degraus fixos da probabilidade Go×Get (req. 9) */
+export const GO_GET_STEPS = [10, 25, 50, 75, 90] as const;
 
 // Aligned with Prisma TaskPriority enum
 export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+
+/** Referências resumidas devolvidas pelo include do backend */
+export interface LeadCompanyRef {
+  id: string;
+  name: string;
+  fantasyName?: string | null;
+}
+
+export interface LeadContactRef {
+  id: string;
+  name: string;
+  position?: string | null;
+  email?: string | null;
+  phone?: string | null;
+}
 
 export interface Lead {
   id: string; // UUID from Prisma
@@ -26,13 +92,23 @@ export interface Lead {
   email?: string;
   company?: string;
   position?: string;
+  companyId?: string | null;
+  companyRef?: LeadCompanyRef | null;
+  contactId?: string | null;
+  contactRef?: LeadContactRef | null;
   source: LeadSource;
   status: LeadStatus;
+  statusReason?: LeadStatusReason | null;
+  statusReasonNote?: string | null;
+  estimatedValue?: number | string | null;
+  estimatedTimeline?: string | null;
+  probabilityGoGet?: number | null;
   score: number;
   isContact?: boolean;
   convertedAt?: string | null;
   notes?: string;
   assignedTo?: string;
+  assignedUser?: { id: string; name: string; email: string } | null;
   tags: string[];
   customFields: Record<string, string | number | boolean | null>;
   interactions?: Interaction[];
@@ -41,16 +117,54 @@ export interface Lead {
   updatedAt?: string;
 }
 
+// Alinhado ao backend (Prisma InteractionType/InteractionDirection em MAIÚSCULAS)
+export type InteractionType =
+  | 'EMAIL'
+  | 'WHATSAPP'
+  | 'CALL'
+  | 'MEETING'
+  | 'NOTE'
+  | 'STATUS_CHANGE'
+  | 'AUTOMATION';
+
+export type MeetingModality = 'PRESENCIAL' | 'ONLINE';
+
+export type CallReason =
+  | 'PRIMEIRO_CONTATO'
+  | 'SOLICITACAO_INFORMACOES'
+  | 'FOLLOW_UP'
+  | 'SUPORTE';
+
+export const CALL_REASON_LABELS: Record<CallReason, string> = {
+  PRIMEIRO_CONTATO: 'Primeiro contato',
+  SOLICITACAO_INFORMACOES: 'Solicitação de informações',
+  FOLLOW_UP: 'Follow-up',
+  SUPORTE: 'Suporte',
+};
+
+export interface InteractionParticipant {
+  id: string;
+  leadId: string;
+  lead?: LeadContactRef;
+}
+
 export interface Interaction {
   id: string;
   leadId: string;
-  type: 'note' | 'call' | 'email' | 'whatsapp' | 'meeting' | 'status_change' | 'automation';
-  direction?: 'inbound' | 'outbound';
+  type: InteractionType;
+  direction?: 'INBOUND' | 'OUTBOUND';
   subject?: string;
   content: string;
   userId?: string;
+  /** Data/hora do evento (occurredAt do backend; fallback createdAt) */
   timestamp: string;
-  metadata?: Record<string, string | number | boolean | null>;
+  occurredAt?: string | null;
+  createdAt?: string;
+  location?: string | null;
+  modality?: MeetingModality | null;
+  callReason?: CallReason | null;
+  participants?: InteractionParticipant[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface Task {

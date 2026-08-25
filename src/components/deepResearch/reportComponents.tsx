@@ -42,7 +42,7 @@ export const reportComponents: Components = {
     />
   ),
   p: ({ node, ...props }) => (
-    <p className="my-3.5 text-[0.95rem] leading-7 text-gray-700" {...props} />
+    <p className="my-3.5 text-[1.0625rem] leading-7 text-gray-700" {...props} />
   ),
   a: ({ node, ...props }) => (
     // eslint-disable-next-line jsx-a11y/anchor-has-content -- conteúdo vem via children/props do react-markdown
@@ -55,24 +55,31 @@ export const reportComponents: Components = {
   ),
   ul: ({ node, ...props }) => (
     <ul
-      className="my-4 list-disc space-y-1.5 pl-6 text-[0.95rem] text-gray-700 marker:text-primary/70"
+      className="my-4 list-disc space-y-1.5 pl-6 text-[1.0625rem] text-gray-700 marker:text-primary/70"
       {...props}
     />
   ),
   ol: ({ node, ...props }) => (
     <ol
-      className="my-4 list-decimal space-y-1.5 pl-6 text-[0.95rem] text-gray-700 marker:font-semibold marker:text-primary/80"
+      className="my-4 list-decimal space-y-1.5 pl-6 text-[1.0625rem] text-gray-700 marker:font-semibold marker:text-primary/80"
       {...props}
     />
   ),
   li: ({ node, ...props }) => <li className="pl-1 leading-7" {...props} />,
   blockquote: ({ node, ...props }) => (
     <blockquote
-      className="my-5 rounded-r-lg border-l-4 border-primary bg-blue-50/70 px-5 py-3 text-[0.95rem] italic text-gray-700"
+      className="my-5 rounded-r-lg border-l-4 border-primary bg-blue-50/70 px-5 py-3 text-[1.0625rem] italic text-gray-700"
       {...props}
     />
   ),
   hr: ({ node, ...props }) => <hr className="my-10 border-gray-200" {...props} />,
+  sup: ({ node, ...props }) => (
+    // Citação sobrescrita (ver remarkCitations): discreta, sem competir com o texto.
+    <sup
+      className="ml-0.5 align-super text-[0.65em] font-medium text-primary/70"
+      {...props}
+    />
+  ),
   strong: ({ node, ...props }) => <strong className="font-semibold text-gray-900" {...props} />,
   em: ({ node, ...props }) => <em className="italic text-gray-700" {...props} />,
   img: ({ node, ...props }) => (
@@ -87,13 +94,13 @@ export const reportComponents: Components = {
   thead: ({ node, ...props }) => <thead className="bg-gray-800" {...props} />,
   th: ({ node, ...props }) => (
     <th
-      className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-100"
+      className="px-4 py-3 text-left text-xs font-semibold uppercase leading-snug tracking-wide text-gray-100"
       {...props}
     />
   ),
   td: ({ node, ...props }) => (
     <td
-      className="border-t border-gray-100 px-4 py-2.5 align-top text-[0.875rem] text-gray-700"
+      className="border-t border-gray-100 px-4 py-2.5 align-top text-[0.875rem] leading-relaxed text-gray-700 [&:first-child]:font-medium [&:first-child]:text-gray-900"
       {...props}
     />
   ),

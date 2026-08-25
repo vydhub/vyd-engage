@@ -20,8 +20,7 @@
  * acesso (visibilityScope P1) antes de chamar este service.
  */
 import { z } from 'zod';
-import { generateObject, experimental_transcribe as transcribe } from 'ai';
-import { createOpenAI } from '@ai-sdk/openai';
+import { generateObject } from 'ai';
 import prisma from '../config/database.js';
 import {
   InteractionType,
@@ -39,6 +38,7 @@ import {
   getModel,
   logAiUsage,
 } from './aiProvider.js';
+import { transcriptionService } from './transcriptionService.js';
 import { storageService } from './storageService.js';
 import { dealService } from './dealService.js';
 
@@ -114,8 +114,6 @@ A partir da transcrição, produza:
   Para cada campo, "suggested" é o novo valor e "reason" a justificativa curta.
 Não invente informações que não estejam na transcrição.`;
 
-const MEETING_AUDIO_MIME_PREFIX = 'audio/';
-
 // ========================
 // Service
 // ========================
@@ -133,64 +131,19 @@ export const meetingService = {
   },
 
   /**
-   * Transcreve um áudio de reunião via Whisper (OpenAI). Exige que o provedor OpenAI
-   * esteja configurado (whisper-1 é da OpenAI) — sem ele → 503. Retorna o texto.
+   * Transcreve um áudio de reunião via Whisper (OpenAI). Delegado ao
+   * transcriptionService compartilhado (feature `meeting_transcription`) —
+   * mesmos códigos de erro de antes (415 / 503 AI_NOT_CONFIGURED /
+   * 503 AI_PROVIDER_UNAVAILABLE, nunca 500). Retorna o texto.
    */
   async transcribeAudio(tenantId: string, buffer: Buffer, mimeType: string): Promise<string> {
     this.assertAIEnabled();
-
-    if (!mimeType.startsWith(MEETING_AUDIO_MIME_PREFIX)) {
-      throw createError(
-        `Tipo de arquivo de áudio não suportado: ${mimeType}.`,
-        415,
-        'UNSUPPORTED_AUDIO_TYPE'
-      );
-    }
-
-    // Whisper é específico da OpenAI. Só transcrevemos se houver uma API key OpenAI —
-    // seja via AI_PROVIDER=openai, seja via OPENAI_API_KEY legado.
-    const config = resolveProviderConfig();
-    const openaiApiKey =
-      config?.provider === 'openai' ? config.apiKey : process.env.OPENAI_API_KEY;
-    if (!openaiApiKey) {
-      throw createError(
-        'Transcrição de áudio exige o provedor OpenAI (Whisper). Cole a transcrição do texto ou configure a OpenAI.',
-        503,
-        'AI_NOT_CONFIGURED'
-      );
-    }
-
-    const started = Date.now();
-    const openai = createOpenAI({ apiKey: openaiApiKey });
-    // A inferência genérica do transcribe pode disparar TS2589 sob node16 —
-    // chamamos sem tipar e validamos o formato do retorno em runtime.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let result: any;
-    try {
-      // Uma falha de runtime do provedor (timeout, 429, rede, credencial revogada
-      // mid-flight) sobe como erro cru SEM statusCode → viraria 500. Convertemos em
-      // 503 AI_PROVIDER_UNAVAILABLE, espelhando o que analyzeTranscript faz com
-      // generateObject — "NUNCA 500 no caminho de IA".
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      result = await (transcribe as any)({
-        model: openai.transcription('whisper-1'),
-        audio: new Uint8Array(buffer),
-      });
-    } catch (err: unknown) {
-      logger.warn('Falha na transcrição da reunião (IA).', err as Error);
-      throw createError(
-        'O serviço de transcrição está temporariamente indisponível. Tente novamente em instantes.',
-        503,
-        'AI_PROVIDER_UNAVAILABLE'
-      );
-    }
-    logAiUsage({
-      feature: 'meeting_transcription',
+    return transcriptionService.transcribeAudio(
       tenantId,
-      latencyMs: Date.now() - started,
-      provider: 'openai',
-    });
-    return String(result?.text ?? '');
+      buffer,
+      mimeType,
+      'meeting_transcription'
+    );
   },
 
   /**

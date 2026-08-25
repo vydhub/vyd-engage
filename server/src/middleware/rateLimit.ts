@@ -1,9 +1,14 @@
 import rateLimit from 'express-rate-limit';
 import type { Request } from 'express';
+import { createHash } from 'crypto';
 
 const isDevelopment = process.env.NODE_ENV === 'development';
 const WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10); // 15 minutes
-const MAX_REQUESTS = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100', 10);
+// 600/15min ≈ 40/min por SESSÃO. O valor anterior (100/15min ≈ 6,6/min) era
+// menor que o uso normal de um SPA: cada tela dispara várias queries, e o
+// realtime religado (#75) multiplica as invalidações de cache. Usuário legítimo
+// batia em 429 ao salvar um lead — sintoma que chegou como "erro ao salvar".
+const MAX_REQUESTS = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '600', 10);
 
 /**
  * IP real do usuário, nesta topologia específica.
@@ -27,6 +32,30 @@ export function ipDoCliente(req: Request): string {
   return req.ip || 'anonymous';
 }
 
+/**
+ * Chave do apiLimiter: a SESSÃO quando existe, o IP quando não existe.
+ *
+ * Por que não basta o IP: numa empresa todo mundo sai pelo mesmo IP público
+ * (NAT). Com chave por IP, os usuários do tenant DIVIDEM um único balde — foi o
+ * que produziu 429 ao salvar lead com poucos usuários simultâneos. Por sessão,
+ * cada um tem o seu.
+ *
+ * Por que não `req.user`: este middleware é montado ANTES das rotas, e o
+ * `authenticate` roda dentro de cada router — `req.user` ainda é undefined aqui.
+ * Por isso a chave sai do cookie.
+ *
+ * O token NÃO é validado: aqui ele é só identificador de balde, e o hash existe
+ * para não guardar credencial na memória do limiter. Não enfraquece nada — quem
+ * forjasse um token para ganhar balde novo já conseguiria o mesmo trocando de
+ * IP. Autenticação de verdade continua no `authenticate`.
+ */
+export function chaveDoLimiter(req: Request): string {
+  const cookies = (req as Request & { cookies?: Record<string, string> }).cookies;
+  const token = cookies?.accessToken;
+  if (token) return `s:${createHash('sha256').update(token).digest('base64url').slice(0, 22)}`;
+  return `ip:${ipDoCliente(req)}`;
+}
+
 // Dev: high limits to avoid blocking during testing (catches infinite loops / accidental DoS)
 // Production: strict limits enforced normally
 export const apiLimiter = rateLimit({
@@ -35,7 +64,7 @@ export const apiLimiter = rateLimit({
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: ipDoCliente,
+  keyGenerator: chaveDoLimiter,
 });
 
 /**

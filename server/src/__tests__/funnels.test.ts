@@ -38,13 +38,13 @@ describe('Funnel Service', () => {
   });
 
   describe('ensureDefaultFunnel', () => {
-    it('should create default funnel with 7 columns when none exists', async () => {
+    it('should create default funnel with 5 columns when none exists', async () => {
       const funnel = await funnelService.ensureDefaultFunnel(testTenantId);
 
       expect(funnel).toHaveProperty('id');
       expect(funnel.name).toBe('Funil de Venda');
       expect(funnel.isDefault).toBe(true);
-      expect(funnel.columns.length).toBe(7);
+      expect(funnel.columns.length).toBe(5);
     });
 
     it('should return existing default funnel', async () => {
@@ -61,7 +61,7 @@ describe('Funnel Service', () => {
 
       expect(funnel.name).toBe('My Funnel');
       expect(funnel.isDefault).toBe(true);
-      expect(funnel.columns.length).toBe(7); // DEFAULT_COLUMNS
+      expect(funnel.columns.length).toBe(5); // DEFAULT_COLUMNS (régua nova)
     });
 
     it('should create second funnel as non-default', async () => {
@@ -171,7 +171,7 @@ describe('Funnel Service', () => {
 
       expect(column.title).toBe('New Stage');
       expect(column.color).toBe('#ABCDEF');
-      expect(column.order).toBe(7); // After 7 default columns (0-6)
+      expect(column.order).toBe(5); // After 5 default columns (0-4)
     });
 
     it('should throw 404 for non-existent funnel', async () => {
@@ -225,8 +225,8 @@ describe('Funnel Service', () => {
   describe('moveLead', () => {
     it('should move a lead to another column and update status', async () => {
       const funnel = await funnelService.create(testTenantId, { name: 'Test' });
-      const sourceCol = funnel.columns[0]; // Novo (NEW)
-      const targetCol = funnel.columns[2]; // Qualificado (QUALIFIED)
+      const sourceCol = funnel.columns[0]; // Novo (NOVO)
+      const targetCol = funnel.columns[1]; // Em Andamento (não-terminal: sem motivo)
 
       // Create a lead in the first column
       const lead = await prisma.lead.create({
@@ -234,8 +234,8 @@ describe('Funnel Service', () => {
           tenantId: testTenantId,
           name: 'Move Lead',
           email: 'move@test.com',
-          status: 'NEW',
-          source: 'WEBSITE',
+          status: 'NOVO',
+          source: 'OUTROS',
           funnelColumnId: sourceCol.id,
           positionInColumn: 0,
         },
@@ -249,6 +249,31 @@ describe('Funnel Service', () => {
       if (targetCol.mappedStatus) {
         expect(moved.status).toBe(targetCol.mappedStatus);
       }
+    });
+
+    it('coluna terminal SEM motivo → 400 STATUS_REASON_REQUIRED (spec req. 14)', async () => {
+      const funnel = await funnelService.create(testTenantId, { name: 'Test' });
+      const pausadoCol = funnel.columns.find((c) => c.mappedStatus === 'PAUSADO')!;
+      const lead = await prisma.lead.create({
+        data: {
+          tenantId: testTenantId,
+          name: 'Move terminal',
+          status: 'NOVO',
+          source: 'OUTROS',
+          funnelColumnId: funnel.columns[0].id,
+        },
+      });
+
+      await expect(
+        funnelService.moveLead(testTenantId, lead.id, pausadoCol.id, 0)
+      ).rejects.toMatchObject({ code: 'STATUS_REASON_REQUIRED' });
+
+      // Com motivo, move e grava o motivo
+      const moved = await funnelService.moveLead(testTenantId, lead.id, pausadoCol.id, 0, undefined, {
+        statusReason: 'PAUSADO_PELO_CLIENTE',
+      });
+      expect(moved.status).toBe('PAUSADO');
+      expect(moved.statusReason).toBe('PAUSADO_PELO_CLIENTE');
     });
 
     it('should throw 404 for non-existent lead', async () => {

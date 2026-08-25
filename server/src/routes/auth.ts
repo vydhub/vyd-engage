@@ -4,87 +4,29 @@ import { authService } from '../services/authService.js';
 import { twoFactorService } from '../services/twoFactorService.js';
 import { authenticate } from '../middleware/auth.js';
 import { createError } from '../middleware/errorHandler.js';
-import { passwordResetLimiter } from '../middleware/rateLimit.js';
-import { logger } from '../utils/logger.js';
 import prisma from '../config/database.js';
 import { setAuthCookies, clearAuthCookies } from '../utils/cookies.js';
-import { setCsrfCookie } from '../middleware/csrf.js';
 import { personNameSchema } from '../utils/validators.js';
 
 const router = Router();
 
-// Validation schemas
-const registerSchema = z.object({
-  email: z.string().min(1, 'Email é obrigatório').email('Email inválido').toLowerCase().trim(),
-  password: z.string().min(8),
-  name: personNameSchema,
-  companyName: z.string().min(2),
-});
-
-const loginSchema = z.object({
-  // Normaliza o email (trim + lowercase) para casar com o armazenamento canônico,
-  // igual ao registerSchema. Sem isto, um usuário criado por convite com email de
-  // case misto não consegue logar digitando o email em minúsculas (Postgres é
-  // case-sensitive na coluna `email @unique`).
-  email: z.string().trim().toLowerCase().email(),
-  password: z.string().min(1),
-});
-
-const refreshSchema = z.object({
-  refreshToken: z.string(),
-});
-
-// Register
-router.post('/register', async (req, res, next) => {
-  try {
-    const data = registerSchema.parse(req.body);
-    const result = await authService.register(data);
-    setAuthCookies(res, result.accessToken, result.refreshToken);
-    setCsrfCookie(res);
-    res.status(201).json({ user: result.user });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return next(createError('Validation error', 400, 'VALIDATION_ERROR', error.errors));
-    }
-    next(error);
-  }
-});
-
-// Login
-router.post('/login', async (req, res, next) => {
-  try {
-    const data = loginSchema.parse(req.body);
-    const result = await authService.login(data);
-
-    // Check if 2FA is enabled
-    const has2FA = await twoFactorService.isEnabled(result.user.id);
-    if (has2FA) {
-      // If 2FA code provided in request, validate it
-      const totpCode = req.body.totpCode;
-      if (!totpCode) {
-        // Return partial response requiring 2FA
-        return res.json({
-          requiresTwoFactor: true,
-          userId: result.user.id,
-        });
-      }
-
-      const isValid = await twoFactorService.validateCode(result.user.id, totpCode);
-      if (!isValid) {
-        return next(createError('Invalid 2FA code', 401, 'INVALID_TOTP_CODE'));
-      }
-    }
-
-    setAuthCookies(res, result.accessToken, result.refreshToken);
-    setCsrfCookie(res);
-    res.json({ user: result.user });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return next(createError('Validation error', 400, 'VALIDATION_ERROR', error.errors));
-    }
-    next(error);
-  }
-});
+/*
+ * CORTE DO LOGIN NATIVO (Onda 4 / Pacote 2 — decisão do dono, 07/08/2026).
+ *
+ * A identidade do ecossistema VYD mora no VYD ID (id.vydhub.com). A ÚNICA
+ * porta de entrada deste app é `POST /auth/sso/exchange` (token exchange).
+ * Por isso saíram daqui: `register` (que criava usuário E empresa, ou seja,
+ * auto-cadastro de tenant), `login` por senha e o par
+ * `password/reset-request` + `password/reset`.
+ *
+ * NÃO reintroduza nenhuma dessas rotas. Quem não consegue entrar usa o
+ * resgate do IdP (edge `request-access`), não uma porta local.
+ *
+ * O que fica, e por quê: `/refresh` (a sessão do exchange precisa renovar),
+ * `/logout` e `/logout-all` (autenticadas; `logout-all` é o verbo da Onda 4),
+ * `/me` e `/tenant` (leitura autenticada), `/email/verify*` e 2FA (exigem
+ * sessão — não são porta de entrada).
+ */
 
 // Refresh token
 router.post('/refresh', async (req, res, next) => {
@@ -175,45 +117,6 @@ router.get('/me', authenticate, async (req, res, next) => {
   }
 });
 
-// Request password reset
-const requestPasswordResetSchema = z.object({
-  email: z.string().trim().toLowerCase().email('Email inválido'),
-});
-
-router.post('/password/reset-request', async (req, res, next) => {
-  try {
-    const { email } = requestPasswordResetSchema.parse(req.body);
-    await authService.requestPasswordReset(email);
-    // Always return success to prevent email enumeration
-    res.json({ message: 'If the email exists, a password reset link has been sent.' });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      logger.error('Password reset validation error', { errors: error.errors });
-      return next(createError('Validation error', 400, 'VALIDATION_ERROR', error.errors));
-    }
-    next(error);
-  }
-});
-
-// Reset password
-const resetPasswordSchema = z.object({
-  token: z.string().uuid(),
-  password: z.string().min(8),
-});
-
-router.post('/password/reset', async (req, res, next) => {
-  try {
-    const { token, password } = resetPasswordSchema.parse(req.body);
-    await authService.resetPassword(token, password);
-    res.json({ message: 'Password reset successfully' });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return next(createError('Validation error', 400, 'VALIDATION_ERROR', error.errors));
-    }
-    next(error);
-  }
-});
-
 // Send verification email
 router.post('/email/verify-request', authenticate, async (req, res, next) => {
   try {
@@ -291,50 +194,12 @@ router.put('/profile', authenticate, async (req, res, next) => {
   }
 });
 
-// Change password
-const changePasswordSchema = z.object({
-  currentPassword: z.string().min(1),
-  newPassword: z.string().min(8),
-});
-
-router.put('/change-password', authenticate, async (req, res, next) => {
-  try {
-    if (!req.user) {
-      return next(createError('Authentication required', 401));
-    }
-
-    const { currentPassword, newPassword } = changePasswordSchema.parse(req.body);
-
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.userId },
-    });
-
-    if (!user) {
-      return next(createError('User not found', 404));
-    }
-
-    const { comparePassword: comparePw } = await import('../utils/password.js');
-    const isValid = await comparePw(currentPassword, user.passwordHash);
-    if (!isValid) {
-      return next(createError('Senha atual incorreta', 400, 'INVALID_PASSWORD'));
-    }
-
-    const { hashPassword: hashPw } = await import('../utils/password.js');
-    const newHash = await hashPw(newPassword);
-
-    await prisma.user.update({
-      where: { id: req.user.userId },
-      data: { passwordHash: newHash },
-    });
-
-    res.json({ message: 'Password changed successfully' });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return next(createError('Validation error', 400, 'VALIDATION_ERROR', error.errors));
-    }
-    next(error);
-  }
-});
+/*
+ * `PUT /change-password` saiu junto com o corte: sem login por senha, ninguém
+ * tem "senha atual" para informar — quem entra pelo exchange recebe um hash
+ * que não corresponde a nenhuma senha conhecida. A rota era código morto que
+ * mantinha viva a ideia de credencial local.
+ */
 
 // Update tenant (company info)
 const updateTenantSchema = z.object({

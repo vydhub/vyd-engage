@@ -1,5 +1,6 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { remarkCitations } from './remarkCitations';
 import rehypeSlug from 'rehype-slug';
 import rehypeSanitize from 'rehype-sanitize';
 import { reportComponents } from './reportComponents';
@@ -18,7 +19,7 @@ export function ReportRenderer({ markdown }: ReportRendererProps) {
   return (
     <article className="max-w-3xl">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkCitations]}
         rehypePlugins={[rehypeSlug, [rehypeSanitize, reportSchema]]}
         components={reportComponents}
       >

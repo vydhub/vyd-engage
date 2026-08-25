@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Request } from 'express';
-import { ipDoCliente } from '../../middleware/rateLimit.js';
+import { ipDoCliente, chaveDoLimiter } from '../../middleware/rateLimit.js';
 
 /**
  * Chave do apiLimiter.
@@ -42,5 +42,54 @@ describe('ipDoCliente', () => {
   it('nunca devolve vazio', () => {
     const req = { ip: undefined, get: () => undefined } as unknown as Request;
     expect(ipDoCliente(req)).toBe('anonymous');
+  });
+});
+
+/**
+ * Chave do apiLimiter: sessão quando existe, IP quando não existe.
+ *
+ * Numa empresa todo mundo sai pelo mesmo IP público (NAT). Com chave por IP os
+ * usuários do tenant dividem UM balde — foi o que devolveu 429 ao salvar lead.
+ */
+function reqComCookies(
+  cookies: Record<string, string>,
+  headers: Record<string, string> = {},
+  ip = '10.0.0.1'
+): Request {
+  return {
+    ip,
+    cookies,
+    get: (nome: string) => headers[nome.toLowerCase()],
+  } as unknown as Request;
+}
+
+describe('chaveDoLimiter', () => {
+  const MESMO_IP = { 'x-vercel-forwarded-for': '186.248.207.190' };
+
+  it('dois usuários no MESMO IP recebem baldes distintos (o bug do 429)', () => {
+    const ricardo = chaveDoLimiter(reqComCookies({ accessToken: 'token-do-ricardo' }, MESMO_IP));
+    const kleber = chaveDoLimiter(reqComCookies({ accessToken: 'token-do-kleber' }, MESMO_IP));
+    expect(ricardo).not.toBe(kleber);
+  });
+
+  it('a mesma sessão mantém a mesma chave entre requisições', () => {
+    const a = chaveDoLimiter(reqComCookies({ accessToken: 'tk' }, MESMO_IP));
+    const b = chaveDoLimiter(reqComCookies({ accessToken: 'tk' }, { ...MESMO_IP }, '10.9.9.9'));
+    expect(a).toBe(b);
+  });
+
+  it('sem cookie cai no IP do cliente (rota pública, captura de lead)', () => {
+    expect(chaveDoLimiter(reqComCookies({}, MESMO_IP))).toBe('ip:186.248.207.190');
+  });
+
+  it('não guarda o token em claro na chave', () => {
+    const chave = chaveDoLimiter(reqComCookies({ accessToken: 'segredo-do-usuario' }, MESMO_IP));
+    expect(chave).not.toContain('segredo-do-usuario');
+    expect(chave.startsWith('s:')).toBe(true);
+  });
+
+  it('nunca devolve vazio', () => {
+    const req = { ip: undefined, cookies: undefined, get: () => undefined } as unknown as Request;
+    expect(chaveDoLimiter(req)).toBe('ip:anonymous');
   });
 });

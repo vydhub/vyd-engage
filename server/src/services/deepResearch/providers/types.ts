@@ -21,6 +21,18 @@ export interface ProviderResult {
   /** Fontes ricas (título/URL/data) quando o provedor as expõe. */
   searchResults?: ResearchSource[];
   error?: string;
+  /**
+   * `true` quando o provedor parou por LIMITE DE SAÍDA (finish_reason ===
+   * 'length'), e não porque terminou o texto.
+   *
+   * Existe porque o relatório vinha CORTADO no meio de uma palavra e mesmo assim
+   * era gravado como COMPLETED — 4 das 5 primeiras pesquisas de produção
+   * terminavam em "…aproveitando", "…em Fl", "…inser". Sem este sinal não há como
+   * distinguir um relatório inteiro de um decapitado.
+   */
+  truncated?: boolean;
+  /** Motivo bruto do provedor (finish_reason), para diagnóstico. */
+  finishReason?: string;
 }
 
 export interface ResearchProvider {

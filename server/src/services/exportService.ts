@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import prisma from '../config/database.js';
 import ExcelJS from 'exceljs';
+import { normalizeLeadStatus, normalizeLeadSource } from '../utils/leadLegacy.js';
 
 // ────────────────────────────────────────────────────────────────────
 // Types
@@ -68,15 +69,16 @@ export async function exportLeads(
   format: ExportFormat,
   res: Response
 ) {
-  // Build where clause
+  // Build where clause. Status/origem passam pela normalização de valores
+  // LEGADOS (SavedViews antigas com QUALIFIED etc. não podem quebrar o export).
   const where: any = { tenantId, deletedAt: null };
-  if (filters.status) where.status = filters.status;
-  if (filters.source) where.source = filters.source;
+  if (filters.status) where.status = normalizeLeadStatus(filters.status);
+  if (filters.source) where.source = normalizeLeadSource(filters.source);
   if (filters.assignedTo) where.assignedTo = filters.assignedTo;
   if (filters.search) {
     where.OR = [
       { name: { contains: filters.search, mode: 'insensitive' } },
-      { email: { contains: filters.search, mode: 'insensitive' } },
+      { companyRef: { name: { contains: filters.search, mode: 'insensitive' } } },
       { company: { contains: filters.search, mode: 'insensitive' } },
     ];
   }
@@ -106,68 +108,53 @@ export async function exportLeads(
     return;
   }
 
-  // Fetch custom fields for dynamic columns
-  const customFieldDefs = await prisma.customField.findMany({
-    where: { tenantId, active: true },
-    orderBy: { order: 'asc' },
-  });
-
   // Fetch data with relations
   const leads = await prisma.lead.findMany({
     where,
     include: {
-      tags: { include: { tag: true } },
       assignedUser: { select: { name: true } },
+      companyRef: { select: { name: true } },
+      contactRef: { select: { name: true } },
     },
     orderBy: { createdAt: 'desc' },
     take: MAX_EXPORT_ROWS,
   });
 
-  // Build column definitions
-  const staticHeaders = [
+  // Conjunto novo de colunas (specs/leads-oportunidade reqs. 22-24 e 34):
+  // sem Score/Tags/custom fields; com empresa vinculada, contato, campos de
+  // oportunidade e motivo do status.
+  const allHeaders = [
     'Nome',
-    'Email',
-    'Telefone',
     'Empresa',
-    'Cargo',
+    'Contato',
     'Status',
-    'Fonte',
-    'Score',
+    'Motivo do Status',
+    'Origem',
+    'Valor Estimado',
+    'Prazo Estimado',
+    'Probabilidade GoxGet (%)',
     'Responsavel',
-    'Tags',
     'Data Criacao',
     'Data Atualizacao',
   ];
-  const dynamicHeaders = customFieldDefs.map((cf: any) => cf.label || cf.name);
-  const allHeaders = [...staticHeaders, ...dynamicHeaders];
 
   // Map rows
   const rows = leads.map((lead: any) => {
-    const tagStr =
-      lead.tags
-        ?.map((lt: any) => lt.tag?.name)
-        .filter(Boolean)
-        .join(', ') || '';
     const assignedName = lead.assignedUser?.name || '';
-    const staticValues = [
+    return [
       lead.name || '',
-      lead.email || '',
-      lead.phone || '',
-      lead.company || '',
-      lead.position || '',
+      lead.companyRef?.name || lead.company || '',
+      lead.contactRef?.name || '',
       lead.status || '',
+      lead.statusReason || '',
       lead.source || '',
-      lead.score ?? 0,
+      lead.estimatedValue != null ? Number(lead.estimatedValue) : '',
+      lead.estimatedTimeline || '',
+      lead.probabilityGoGet ?? '',
       assignedName,
-      tagStr,
       formatDateISO(lead.createdAt),
       formatDateISO(lead.updatedAt),
     ];
-    const dynamicValues = customFieldDefs.map((cf: any) => {
-      const cfData = lead.customFields as Record<string, any> | null;
-      return cfData?.[cf.name] ?? cfData?.[cf.id] ?? '';
-    });
-    return [...staticValues, ...dynamicValues];
   });
 
   if (format === 'csv') {

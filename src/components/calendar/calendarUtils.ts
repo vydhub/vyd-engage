@@ -21,15 +21,15 @@ import type { Task } from '../../types';
 export type CalendarViewMode = 'list' | 'month' | 'week' | 'agenda';
 
 export const PRIORITY_COLORS: Record<string, string> = {
-  URGENT: 'bg-red-500 text-white',
-  HIGH: 'bg-orange-500 text-white',
+  URGENT: 'bg-destructive/100 text-white',
+  HIGH: 'bg-warning/100 text-white',
   MEDIUM: 'bg-yellow-400 text-yellow-900',
   LOW: 'bg-blue-400 text-white',
 };
 
 export const PRIORITY_DOT_COLORS: Record<string, string> = {
-  URGENT: 'bg-red-500',
-  HIGH: 'bg-orange-500',
+  URGENT: 'bg-destructive/100',
+  HIGH: 'bg-warning/100',
   MEDIUM: 'bg-yellow-400',
   LOW: 'bg-blue-400',
 };

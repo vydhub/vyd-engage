@@ -176,32 +176,28 @@ router.get('/metrics', async (req, res, next) => {
     for (const lead of leads) {
       leadsByStatus[lead.status] = (leadsByStatus[lead.status] || 0) + 1;
       leadsBySource[lead.source] = (leadsBySource[lead.source] || 0) + 1;
-      if (lead.status === 'WON') closedLeads++;
-      if (lead.status === 'NEW') newLeads++;
+      if (lead.status === 'ENCERRADO') closedLeads++;
+      if (lead.status === 'NOVO') newLeads++;
     }
 
     const totalLeads = leads.length;
     const conversionRate = totalLeads > 0 ? Math.round((closedLeads / totalLeads) * 1000) / 10 : 0;
 
     // --- Pipeline metrics ---
-    const stageOrder = ['NEW', 'CONTACTED', 'QUALIFIED', 'PROPOSAL', 'NEGOTIATION', 'WON', 'LOST'];
+    const stageOrder = ['NOVO', 'EM_ANDAMENTO', 'PAUSADO', 'CANCELADO', 'ENCERRADO'];
     const stageColors: Record<string, string> = {
-      NEW: '#6B7280',
-      CONTACTED: '#3B82F6',
-      QUALIFIED: '#8B5CF6',
-      PROPOSAL: '#F59E0B',
-      NEGOTIATION: '#F97316',
-      WON: '#16A34A',
-      LOST: '#DC2626',
+      NOVO: '#3B82F6',
+      EM_ANDAMENTO: '#F59E0B',
+      PAUSADO: '#6B7280',
+      CANCELADO: '#DC2626',
+      ENCERRADO: '#16A34A',
     };
     const stageNames: Record<string, string> = {
-      NEW: 'Novo',
-      CONTACTED: 'Contato',
-      QUALIFIED: 'Qualificado',
-      PROPOSAL: 'Proposta',
-      NEGOTIATION: 'Negociação',
-      WON: 'Ganho',
-      LOST: 'Perdido',
+      NOVO: 'Novo',
+      EM_ANDAMENTO: 'Em Andamento',
+      PAUSADO: 'Pausado',
+      CANCELADO: 'Cancelado',
+      ENCERRADO: 'Encerrado',
     };
     const pipelineStages = stageOrder.map((s) => ({
       name: stageNames[s] || s,

@@ -40,6 +40,10 @@ async function pollPending() {
               markdown: result.markdown,
               sources: result.sources,
               searchResults: result.searchResults,
+              // Repassado explicitamente: este caminho monta o objeto campo a
+              // campo, então um campo novo do provider some se não vier aqui.
+              truncated: result.truncated,
+              finishReason: result.finishReason,
             });
             logger.info('Deep Research concluído', { id: r.id });
           } else if (result.status === 'failed') {

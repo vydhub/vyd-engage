@@ -5,6 +5,8 @@ import { sanitizeMarkdown } from './deepResearch/sanitizeMarkdown.js';
 import { deepResearchTemplateService } from './deepResearch/templateService.js';
 import { buildPrompt } from './deepResearch/promptUtils.js';
 import { getProvider } from './deepResearch/deepResearchProvider.js';
+import { avaliarCompletude } from './deepResearch/completeness.js';
+import { continuarRelatorio } from './deepResearch/continueReport.js';
 import type { ResearchSource } from './deepResearch/providers/types.js';
 import { logger } from '../utils/logger.js';
 
@@ -264,6 +266,9 @@ export const deepResearchService = {
       searchResults?: ResearchSource[];
       failed?: boolean;
       error?: string;
+      /** Provedor parou por limite de saída — o texto está cortado. */
+      truncated?: boolean;
+      finishReason?: string;
     }
   ) {
     if (result.failed) {
@@ -278,15 +283,84 @@ export const deepResearchService = {
     }
     const cleaned = sanitizeMarkdown(result.markdown || '');
     const sources = result.sources?.length ? result.sources : cleaned.sources;
+
+    // O `finish_reason` do provedor NÃO basta: num teste real o motor entregou 8
+    // dos 10 capítulos pedidos, cortado no meio da frase, e mesmo assim reportou
+    // `stop`. Conferimos a cobertura contra o outline do prompt.
+    const atual = await prisma.deepResearch.findUnique({
+      where: { id },
+      select: { promptUsed: true },
+    });
+    const promptOriginal = atual?.promptUsed || '';
+    let markdownFinal = cleaned.markdown;
+    let searchResultsFinal = result.searchResults || [];
+    let sourcesFinal = sources;
+    let completude = avaliarCompletude(promptOriginal, markdownFinal);
+    let continuacoes = 0;
+
+    // Incompleto → tenta COMPLETAR antes de gravar, pedindo ao motor apenas as
+    // seções que faltam. Só quando há prompt para comparar (sem outline não há
+    // o que cobrar) e provider síncrono disponível.
+    const provider = getProvider();
+    if (completude.incompleto && promptOriginal.trim() && provider) {
+      const cont = await continuarRelatorio(
+        provider,
+        promptOriginal,
+        markdownFinal,
+        searchResultsFinal,
+        sourcesFinal
+      );
+      if (cont.continuacoes > 0) {
+        const limpo = sanitizeMarkdown(cont.markdown);
+        markdownFinal = limpo.markdown;
+        searchResultsFinal = cont.searchResults;
+        sourcesFinal = cont.sources.length ? cont.sources : limpo.sources;
+        completude = avaliarCompletude(promptOriginal, markdownFinal);
+        continuacoes = cont.continuacoes;
+        logger.info('Deep Research — continuação aplicada', {
+          id,
+          continuacoes,
+          charsAntes: cleaned.markdown.length,
+          charsDepois: markdownFinal.length,
+          aindaFaltando: completude.faltando,
+        });
+      }
+    }
+
+    const incompleto = completude.incompleto;
+    if (incompleto) {
+      logger.warn('Deep Research INCOMPLETO (após continuação)', {
+        id,
+        truncadoPeloProvedor: result.truncated === true,
+        finishReason: result.finishReason,
+        secoesFaltando: completude.faltando,
+        fraseIncompleta: completude.fraseIncompleta,
+        continuacoes,
+      });
+    }
     await prisma.deepResearch.update({
       where: { id },
       data: {
-        reportMarkdown: cleaned.markdown,
+        reportMarkdown: markdownFinal,
         reportMeta: {
-          sources,
-          searchResults: result.searchResults || [],
-          charCount: cleaned.markdown.length,
+          sources: sourcesFinal,
+          searchResults: searchResultsFinal,
+          charCount: markdownFinal.length,
           generatedAt: new Date().toISOString(),
+          // Relatório cortado. Fica no meta (e não em providerError) porque NÃO é
+          // falha: o conteúdo recebido é válido — só está incompleto, e a tela
+          // avisa em vez de fingir que está pronto.
+          //
+          // `truncated` é a UNIÃO de duas evidências: o provedor admitir o corte
+          // (finish_reason=length) OU a cobertura do outline denunciar. A segunda
+          // é a que pega o caso real, em que o provedor diz `stop` e ainda assim
+          // faltam capítulos.
+          truncated: incompleto,
+          ...(result.finishReason ? { finishReason: result.finishReason } : {}),
+          ...(completude.faltando.length
+            ? { missingSections: completude.faltando }
+            : {}),
+          ...(continuacoes > 0 ? { continuations: continuacoes } : {}),
         } as any,
         status: DeepResearchStatus.COMPLETED,
         providerError: null,

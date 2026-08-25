@@ -2,6 +2,7 @@ import { Queue, Worker, Job } from 'bullmq';
 import { logger } from '../utils/logger.js';
 import prisma from '../config/database.js';
 import { AutomationLogStatus, AutomationStepType, NotificationType } from '@prisma/client';
+import { normalizeLeadStatus, normalizeLeadSource } from '../utils/leadLegacy.js';
 import { automationService } from '../services/automationService.js';
 import { whatsappMessagingService } from '../services/whatsappMessagingService.js';
 import { emailMessagingService } from '../services/emailMessagingService.js';
@@ -731,11 +732,21 @@ export async function dispatchTrigger(
 
       // Filtros do gatilho: builder gráfico grava no nível raiz; legado em
       // trigger.conditions. Só aplicamos um filtro quando ele está definido.
+      // Status/origem passam por normalização de valores LEGADOS (pré régua
+      // "Leads como Oportunidade") — automações antigas seguem casando.
       const filters = trigger.conditions || trigger;
       let conditionsMet = true;
-      if (filters.status && triggerData?.newStatus !== filters.status) conditionsMet = false;
+      if (
+        filters.status &&
+        normalizeLeadStatus(triggerData?.newStatus) !== normalizeLeadStatus(filters.status)
+      )
+        conditionsMet = false;
       if (filters.tagId && triggerData?.tagId !== filters.tagId) conditionsMet = false;
-      if (filters.source && triggerData?.source !== filters.source) conditionsMet = false;
+      if (
+        filters.source &&
+        normalizeLeadSource(triggerData?.source) !== normalizeLeadSource(filters.source)
+      )
+        conditionsMet = false;
       if (!conditionsMet) continue;
 
       // Nós de entrada (conectados ao gatilho). Fallback: primeiro step (legado linear).

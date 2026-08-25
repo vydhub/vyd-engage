@@ -49,6 +49,89 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────
+   HERO (banner de destaque no topo de módulos, ex.: Inteligência de Mercado)
+
+   Por que uma classe e não utilitários: o banner usava
+   `from-gray-900 via-gray-800 to-blue-900` com `text-white` fixo. Os `gray-*`
+   deste projeto são uma PONTE que INVERTE no tema claro (ver bloco acima:
+   --gray-900 vira neutral-100), então no light o gradiente virava branco→azul
+   com texto branco por cima — ilegível. Aqui só entram tokens ESTÁVEIS entre
+   temas (--vyd-neutral-0, --vyd-action-primary, --vyd-text-on-accent), de modo
+   que o contraste é o mesmo em dark, light e high-contrast.
+   ───────────────────────────────────────────────────────────────────── */
+.vyd-hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: var(--vyd-radius-xl, 16px);
+  border: 1px solid color-mix(in oklab, var(--vyd-action-primary) 28%, transparent);
+  background:
+    radial-gradient(
+      120% 150% at 100% 0%,
+      color-mix(in oklab, var(--vyd-action-primary) 42%, transparent) 0%,
+      transparent 62%
+    ),
+    linear-gradient(
+      135deg,
+      var(--vyd-neutral-0) 0%,
+      color-mix(in oklab, var(--vyd-action-primary) 16%, var(--vyd-neutral-0)) 100%
+    );
+  color: var(--vyd-text-on-accent);
+}
+/* Fio de luz no topo — dá acabamento sem pesar. */
+.vyd-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--vyd-text-on-accent) 38%, transparent),
+    transparent
+  );
+  pointer-events: none;
+}
+.vyd-hero__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--vyd-text-on-accent) 22%, transparent);
+  background: color-mix(in oklab, var(--vyd-text-on-accent) 12%, transparent);
+  color: var(--vyd-text-on-accent);
+  font-size: var(--vyd-text-xs, 12px);
+  font-weight: 500;
+}
+.vyd-hero__title {
+  color: var(--vyd-text-on-accent);
+  letter-spacing: -0.01em;
+}
+.vyd-hero__text {
+  color: color-mix(in oklab, var(--vyd-text-on-accent) 72%, transparent);
+}
+/* Ação primária sobre fundo escuro: inverte para chamar atenção. */
+.vyd-hero__cta {
+  background: var(--vyd-text-on-accent);
+  color: var(--vyd-neutral-0);
+  border: 0;
+}
+.vyd-hero__cta:hover {
+  background: color-mix(in oklab, var(--vyd-text-on-accent) 88%, var(--vyd-action-primary));
+  color: var(--vyd-neutral-0);
+}
+.vyd-hero__ghost {
+  background: transparent;
+  color: var(--vyd-text-on-accent);
+  border: 1px solid color-mix(in oklab, var(--vyd-text-on-accent) 32%, transparent);
+}
+.vyd-hero__ghost:hover {
+  background: color-mix(in oklab, var(--vyd-text-on-accent) 12%, transparent);
+  color: var(--vyd-text-on-accent);
+}
+
+/* ─────────────────────────────────────────────────────────────────────
    IMPRESSÃO — o shell é `height: 100vh; overflow: hidden` e a rolagem vive
    no .vyd-canvas. Sem soltar essas travas, QUALQUER impressão dentro do app
    sairia com uma única página (o resto do conteúdo fica clipado). O chrome
@@ -72,6 +155,20 @@
   .vyd-statusbar {
     display: none;
   }
+
+  /* Elementos de INTERFACE que não pertencem ao documento impresso: banda de
+     título da página, breadcrumb, botões de ação, abas. Sem isto o PDF do
+     relatório abria com "Voltar / Editar / Relatório / Prompt" impressos na
+     primeira folha, antes da capa. */
+  .nao-imprimir {
+    display: none !important;
+  }
+
+  /* O papel já é o contêiner: fundo e molduras de tela só gastam tinta. */
+  .vyd-canvas,
+  .vyd-canvas__content {
+    background: none !important;
+  }
 }
 
 /* Margens da folha (exportar PDF do relatório). Fica AQUI, e não no
@@ -80,7 +177,7 @@
    Specificity.max(...)" qualquer teste de componente que importe o CSS. Este
    arquivo só é carregado pelo main.tsx, que os testes não montam. */
 @page {
-  margin: 16mm 14mm;
+  margin: 16mm 14mm 18mm;
 }
 /* Faixa de NAVEGAÇÃO colapsada: a linha da ribbon some (mantém as categorias).
    O grid do shell lê --vyd-layout-ribbon-h na linha → zerá-la colapsa. */

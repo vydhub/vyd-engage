@@ -285,7 +285,7 @@ export function LandingPage() {
                 <Link to="/login">
                   <Button variant="ghost">Entrar</Button>
                 </Link>
-                <Link to="/register">
+                <Link to="/login">
                   <Button className="bg-primary hover:bg-primary-dark">Começar Grátis</Button>
                 </Link>
               </div>
@@ -342,7 +342,7 @@ export function LandingPage() {
                     Entrar
                   </Button>
                 </Link>
-                <Link to="/register" onClick={() => setMobileMenuOpen(false)}>
+                <Link to="/login" onClick={() => setMobileMenuOpen(false)}>
                   <Button className="w-full bg-primary hover:bg-primary-dark">
                     Começar Grátis
                   </Button>
@@ -369,7 +369,7 @@ export function LandingPage() {
                 vendas sem aumentar sua equipe.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 mb-8">
-                <Link to="/register">
+                <Link to="/login">
                   <Button size="lg" className="bg-primary hover:bg-primary-dark gap-2">
                     Criar Conta Gratuita
                     <ArrowRight size={20} />
@@ -579,7 +579,7 @@ export function LandingPage() {
                     </li>
                   ))}
                 </ul>
-                <Link to="/register">
+                <Link to="/login">
                   <Button
                     className={`w-full ${
                       plan.highlighted
@@ -637,7 +637,7 @@ export function LandingPage() {
           <p className="text-xl text-white/90 mb-8">
             Junte-se a centenas de empresas que já estão vendendo mais com o VYD Engage
           </p>
-          <Link to="/register">
+          <Link to="/login">
             <Button size="lg" className="bg-card text-primary hover:bg-card/90">
               Começar Agora - É Grátis
             </Button>

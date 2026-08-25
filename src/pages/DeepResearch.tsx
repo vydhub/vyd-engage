@@ -90,23 +90,23 @@ export function DeepResearch() {
           </TabsList>
           <TabsContent value="pesquisas" className="space-y-6">
             {/* Hero — ações principais consolidadas aqui */}
-            <section className="overflow-hidden rounded-2xl bg-gradient-to-br from-gray-900 via-gray-800 to-blue-900 px-6 py-8 text-white shadow-sm md:px-10 md:py-10">
+            <section className="vyd-hero px-6 py-8 shadow-sm md:px-10 md:py-10">
               <div className="max-w-2xl">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-card/10 px-3 py-1 text-xs font-medium text-blue-100">
+                <span className="vyd-hero__badge">
                   <Sparkles className="h-3.5 w-3.5" />
                   Inteligência de Mercado
                 </span>
-                <h2 className="mt-3 text-2xl font-bold md:text-3xl">
+                <h2 className="vyd-hero__title mt-3 text-2xl font-bold md:text-3xl">
                   Transforme dados em oportunidades comerciais
                 </h2>
-                <p className="mt-2 text-gray-300">
+                <p className="vyd-hero__text mt-2">
                   Solicite uma pesquisa profunda sobre uma empresa ou um segmento inteiro e receba
                   um relatório completo, pronto para apresentar à sua equipe.
                 </p>
                 <div className="mt-6 flex flex-wrap gap-3">
                   <Button
                     size="lg"
-                    className="bg-card text-gray-900 hover:bg-gray-100"
+                    className="vyd-hero__cta"
                     onClick={openNewResearch}
                   >
                     <Plus className="mr-1.5 h-4 w-4" />
@@ -116,7 +116,7 @@ export function DeepResearch() {
                     <Button
                       size="lg"
                       variant="outline"
-                      className="border-white/30 bg-transparent text-white hover:bg-card/10 hover:text-white"
+                      className="vyd-hero__ghost"
                       onClick={() => setTemplatesOpen(true)}
                     >
                       <SlidersHorizontal className="mr-1.5 h-4 w-4" />

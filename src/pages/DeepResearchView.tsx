@@ -36,6 +36,10 @@ export function DeepResearchView() {
   const hasReport = item?.status === 'COMPLETED' && markdown.trim().length > 0;
   const sourceCount = item?.reportMeta?.sources?.length ?? 0;
   const searchResults = item?.reportMeta?.searchResults ?? [];
+  // Relatórios gerados antes da detecção não têm o campo — só avisamos quando o
+  // motor DISSE que cortou, nunca por suposição.
+  const truncated = item?.reportMeta?.truncated === true;
+  const missingSections = item?.reportMeta?.missingSections ?? [];
 
   // Conteúdo do relatório (visualizador ou estado vazio). Reutilizado na aba
   // "Relatório" do platform admin e na visão direta do usuário comum.
@@ -47,6 +51,8 @@ export function DeepResearchView() {
       updatedAt={item.updatedAt}
       searchResults={searchResults}
       sourceCount={sourceCount}
+      truncated={truncated}
+      missingSections={missingSections}
     />
   ) : (
     <StatusState status={item.status} onEdit={() => setEditorOpen(true)} />
@@ -54,11 +60,14 @@ export function DeepResearchView() {
 
   return (
     <div className="min-h-screen bg-gray-50/60">
-      <Header title={item?.title ?? 'Inteligência de Mercado'} subtitle="Inteligência de Mercado" />
+      {/* nao-imprimir: no PDF quem abre o documento e a CAPA do relatorio. */}
+      <div className="nao-imprimir">
+        <Header title={item?.title ?? 'Inteligência de Mercado'} subtitle="Inteligência de Mercado" />
+      </div>
 
       <div className="p-4 md:p-8">
         {/* Navegação e ações */}
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div className="nao-imprimir mb-6 flex flex-wrap items-center justify-between gap-3">
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
@@ -99,7 +108,7 @@ export function DeepResearchView() {
           // Platform admin vê o relatório (web page) e o prompt/processamento em
           // abas distintas — o prompt é IP da plataforma e não chega ao usuário comum.
           <Tabs defaultValue="report" className="gap-4">
-            <TabsList className="w-fit">
+            <TabsList className="nao-imprimir w-fit">
               <TabsTrigger value="report" className="px-4">
                 Relatório
               </TabsTrigger>

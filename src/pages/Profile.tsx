@@ -29,13 +29,6 @@ export function Profile() {
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
-  const [passwordData, setPasswordData] = useState({
-    currentPassword: '',
-    newPassword: '',
-    confirmPassword: '',
-  });
-  const [passwordError, setPasswordError] = useState('');
-  const [passwordSuccess, setPasswordSuccess] = useState('');
   const [stats, setStats] = useState({ leads: 0, automations: 0, memberSince: '', plan: '' });
 
   useEffect(() => {
@@ -129,31 +122,6 @@ export function Profile() {
       toast.error(error.message || 'Erro ao salvar perfil. Tente novamente.');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleChangePassword = async () => {
-    setPasswordError('');
-    setPasswordSuccess('');
-
-    if (passwordData.newPassword !== passwordData.confirmPassword) {
-      setPasswordError('As senhas não coincidem');
-      return;
-    }
-    if (passwordData.newPassword.length < 8) {
-      setPasswordError('A senha deve ter pelo menos 8 caracteres');
-      return;
-    }
-
-    try {
-      await apiClient.changePassword({
-        currentPassword: passwordData.currentPassword,
-        newPassword: passwordData.newPassword,
-      });
-      setPasswordSuccess('Senha alterada com sucesso!');
-      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
-    } catch (error: any) {
-      setPasswordError(error.message || 'Erro ao alterar senha');
     }
   };
 
@@ -313,71 +281,6 @@ export function Profile() {
                       cadastrado aqui pode comandar a IA por mensagem.
                     </p>
                   </div>
-                </div>
-              </div>
-            </Card>
-
-            {/* Password Security */}
-            <Card className="bg-card border-gray-300 shadow-sm">
-              <div className="p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Segurança e Senha</h3>
-                <div className="space-y-4">
-                  <div>
-                    <Label htmlFor="current-password">Senha atual</Label>
-                    <Input
-                      id="current-password"
-                      type="password"
-                      value={passwordData.currentPassword}
-                      onChange={(e) =>
-                        setPasswordData({ ...passwordData, currentPassword: e.target.value })
-                      }
-                      placeholder="Digite sua senha atual"
-                      className="mt-1.5"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="new-password">Nova senha</Label>
-                    <Input
-                      id="new-password"
-                      type="password"
-                      value={passwordData.newPassword}
-                      onChange={(e) =>
-                        setPasswordData({ ...passwordData, newPassword: e.target.value })
-                      }
-                      placeholder="Digite sua nova senha"
-                      className="mt-1.5"
-                    />
-                    <p className="text-xs text-gray-600 mt-1.5">
-                      A senha deve ter pelo menos 8 caracteres
-                    </p>
-                  </div>
-                  <div>
-                    <Label htmlFor="confirm-password">Confirmar nova senha</Label>
-                    <Input
-                      id="confirm-password"
-                      type="password"
-                      value={passwordData.confirmPassword}
-                      onChange={(e) =>
-                        setPasswordData({ ...passwordData, confirmPassword: e.target.value })
-                      }
-                      placeholder="Confirme sua nova senha"
-                      className="mt-1.5"
-                    />
-                  </div>
-                  {passwordError && <p className="text-sm text-red-600">{passwordError}</p>}
-                  {passwordSuccess && <p className="text-sm text-green-600">{passwordSuccess}</p>}
-                  <Button
-                    onClick={handleChangePassword}
-                    disabled={
-                      !passwordData.currentPassword ||
-                      !passwordData.newPassword ||
-                      !passwordData.confirmPassword
-                    }
-                    variant="outline"
-                    className="w-full"
-                  >
-                    Alterar Senha
-                  </Button>
                 </div>
               </div>
             </Card>

@@ -10,10 +10,7 @@ export function VYDEcosystemBanner() {
   const publicRoutes = [
     '/',
     '/login',
-    '/register',
     '/onboarding',
-    '/forgot-password',
-    '/reset-password',
     '/verify-email',
     '/accept-invitation',
   ];

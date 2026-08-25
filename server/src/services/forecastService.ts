@@ -343,13 +343,11 @@ export const forecastService = {
     }
 
     const stageOrder: LeadStatus[] = [
-      LeadStatus.NEW,
-      LeadStatus.CONTACTED,
-      LeadStatus.QUALIFIED,
-      LeadStatus.PROPOSAL,
-      LeadStatus.NEGOTIATION,
-      LeadStatus.WON,
-      LeadStatus.LOST,
+      LeadStatus.NOVO,
+      LeadStatus.EM_ANDAMENTO,
+      LeadStatus.PAUSADO,
+      LeadStatus.CANCELADO,
+      LeadStatus.ENCERRADO,
     ];
 
     const groups = await prisma.lead.groupBy({
@@ -361,14 +359,21 @@ export const forecastService = {
     const countMap = new Map<LeadStatus, number>(groups.map((g) => [g.status, g._count.id]));
     const total = groups.reduce((sum, g) => sum + g._count.id, 0);
 
-    // Build funnel stages (exclude LOST from conversion chain)
-    const conversionChain = stageOrder.filter((s) => s !== LeadStatus.LOST);
+    // Cadeia de conversão: NOVO → EM_ANDAMENTO → ENCERRADO.
+    // PAUSADO e CANCELADO ficam fora da cadeia (equivalem ao antigo LOST).
+    const conversionChain = stageOrder.filter(
+      (s) => s !== LeadStatus.PAUSADO && s !== LeadStatus.CANCELADO,
+    );
     const stages: FunnelConversionStage[] = stageOrder.map((stage) => {
       const count = countMap.get(stage) || 0;
       let conversionToNext: number | null = null;
       let dropOffRate: number | null = null;
 
-      if (stage !== LeadStatus.LOST && stage !== LeadStatus.WON) {
+      if (
+        stage !== LeadStatus.PAUSADO &&
+        stage !== LeadStatus.CANCELADO &&
+        stage !== LeadStatus.ENCERRADO
+      ) {
         const chainIdx = conversionChain.indexOf(stage);
         if (chainIdx >= 0 && chainIdx < conversionChain.length - 1) {
           const nextStage = conversionChain[chainIdx + 1];

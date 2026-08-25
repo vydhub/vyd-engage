@@ -14,6 +14,7 @@ import { Label } from '../ui/label';
 import { Button } from '../ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { RichTextEditor } from '../ui/RichTextEditor';
+import { CompanyPicker } from './CompanyPicker';
 import { apiClient } from '../../services/api/client';
 import { useEmpreendimentos, usePlaybooks, useRoadmapActions } from '../../hooks/useComercial';
 import { stripHtml } from '../../lib/richText';
@@ -58,12 +59,6 @@ export function RoadmapCreateDialog({
   const [roleMap, setRoleMap] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
-  const companiesQuery = useQuery({
-    queryKey: ['companies', 'roadmap-picker'],
-    queryFn: () => apiClient.getCompanies({ limit: 100 }),
-    enabled: open,
-  });
-  const companies = (companiesQuery.data?.companies ?? []) as Array<{ id: string; name: string }>;
 
   const empreendimentosQuery = useEmpreendimentos(companyId ? { companyId } : undefined);
   const empreendimentos = companyId ? (empreendimentosQuery.data?.items ?? []) : [];
@@ -175,27 +170,18 @@ export function RoadmapCreateDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label>Empresa</Label>
-            <Select
+            <Label htmlFor="roadmap-empresa">Empresa</Label>
+            {/* Busca no SERVIDOR: o `<Select>` anterior trazia no máximo 100 de
+                219 empresas do tenant e não tinha filtro de texto. */}
+            <CompanyPicker
+              id="roadmap-empresa"
               value={companyId}
-              onValueChange={(v) => {
-                setCompanyId(v);
+              required
+              onChange={(id: string) => {
+                setCompanyId(id);
                 setEmpreendimentoId(NONE);
               }}
-            >
-              <SelectTrigger>
-                <SelectValue
-                  placeholder={companiesQuery.isLoading ? 'Carregando…' : 'Selecione a empresa'}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {companies.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            />
           </div>
 
           <div className="space-y-1.5">

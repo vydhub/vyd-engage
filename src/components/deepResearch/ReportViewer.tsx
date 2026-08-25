@@ -6,6 +6,7 @@ import {
   BookOpen,
   ListTree,
   FileDown,
+  AlertTriangle,
 } from 'lucide-react';
 import { buttonVariants } from '../ui/button';
 import {
@@ -38,6 +39,10 @@ interface ReportViewerProps {
   updatedAt: string;
   searchResults: ResearchSource[];
   sourceCount: number;
+  /** O motor cortou o texto por limite de saída — o relatório está incompleto. */
+  truncated?: boolean;
+  /** Seções do roteiro que ficaram de fora (quando detectadas). */
+  missingSections?: string[];
 }
 
 function readStoredMode(): Mode {
@@ -63,6 +68,8 @@ export function ReportViewer({
   updatedAt,
   searchResults,
   sourceCount,
+  truncated = false,
+  missingSections = [],
 }: ReportViewerProps) {
   const hasSources = searchResults.length > 0 || sourceCount > 0;
   const { split, pages } = useReportPages(markdown, hasSources);
@@ -291,6 +298,26 @@ export function ReportViewer({
         </button>
       </div>
 
+      {/* O motor parou por limite de tokens: o texto está cortado, às vezes no
+          meio de uma palavra. Avisar é o mínimo — antes disto o relatório
+          aparecia como se estivesse completo. */}
+      {truncated && (
+        <div className="report-viewer__truncated" role="status">
+          <AlertTriangle size={16} aria-hidden />
+          <div>
+            <strong>Relatório incompleto.</strong> O motor de pesquisa interrompeu o texto
+            antes de cobrir todo o roteiro. O conteúdo acima é válido, mas está parcial —
+            gere novamente para obter a versão completa.
+            {missingSections.length > 0 && (
+              <>
+                {' '}
+                Ficou sem: <em>{missingSections.join('; ')}</em>.
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       <div
         className="report-viewer__progress"
         role="progressbar"
@@ -385,6 +412,7 @@ export function ReportViewer({
           toc={toc}
           searchResults={searchResults}
           sourceCount={sourceCount}
+          truncated={truncated}
         />
       )}
     </div>

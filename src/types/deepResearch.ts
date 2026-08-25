@@ -42,6 +42,19 @@ export interface DeepResearchReportMeta {
   searchResults?: ResearchSource[];
   generatedAt?: string;
   charCount?: number;
+  /**
+   * O motor parou por limite de tokens de saída: o texto está CORTADO (às vezes
+   * no meio de uma palavra), não concluído. Relatórios antigos não têm o campo —
+   * ausente significa "não sabemos", e a tela não avisa nada nesse caso.
+   */
+  truncated?: boolean;
+  /** finish_reason bruto do provedor, para diagnóstico. */
+  finishReason?: string;
+  /**
+   * Seções do roteiro que o relatório não cobriu. É o sinal mais útil: no caso
+   * real o provedor reportou `stop` e ainda assim faltaram 2 capítulos.
+   */
+  missingSections?: string[];
 }
 
 /** Item da lista — não carrega o markdown completo nem o prompt. */

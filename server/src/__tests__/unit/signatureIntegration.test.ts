@@ -222,10 +222,15 @@ describe('signatureService.handleWebhook — atualiza status + notifica', () => 
     expect(notifyCreateMock).toHaveBeenCalledOnce();
   });
 
-  it('envelope desconhecido → proposal_not_found (não quebra)', async () => {
+  // Sem proposta, o webhook cai no fallback do NDA de consultor (módulo de
+  // Parceiros) — o token do ZapSign é global, então o mesmo endpoint serve os
+  // dois tipos de documento. Não achando nem consultor, o motivo passa a ser
+  // 'envelope_not_found': desconhecido em AMBAS as tabelas.
+  it('envelope desconhecido em proposta e NDA → envelope_not_found (não quebra)', async () => {
     prismaMock.proposal.findFirst.mockResolvedValue(null as never);
+    prismaMock.consultor.findFirst.mockResolvedValue(null as never);
     const res = await signatureService.handleWebhook(buildBody('signed'), 'x');
-    expect(res).toMatchObject({ handled: false, reason: 'proposal_not_found' });
+    expect(res).toMatchObject({ handled: false, reason: 'envelope_not_found' });
   });
 
   // HMAC sobre o corpo CRU (req 3 do escopo B3): um payload com espaçamento e
