@@ -198,7 +198,16 @@ router.put('/:id', requireRole('ADMIN', 'GESTOR'), async (req, res, next) => {
         // E-mail: é a identidade de LOGIN — só ADMIN pode alterar. Normalizado
         // (trim + lowercase) para casar com o armazenamento canônico.
         email: z.string().trim().toLowerCase().email('Email inválido').optional(),
-        role: z.nativeEnum(UserRole).optional(),
+        // CONSULTOR não é atribuível por aqui — a conta nasce (e morre) com o
+        // cadastro do consultor no módulo de Parceiros; e um consultor não pode
+        // ser "promovido" a papel interno por esta rota (troca de papel do portal
+        // exige recriar a conta pelo fluxo interno).
+        role: z
+          .nativeEnum(UserRole)
+          .optional()
+          .refine((r) => r !== UserRole.CONSULTOR, {
+            message: 'O papel CONSULTOR é gerenciado pelo módulo de Parceiros',
+          }),
         status: z.nativeEnum(UserStatus).optional(),
         commercialFunction: z.nativeEnum(CommercialFunction).nullable().optional(),
         // Times & governança (Upgrade RD P1): vínculo com equipe/perfil.
@@ -217,6 +226,16 @@ router.put('/:id', requireRole('ADMIN', 'GESTOR'), async (req, res, next) => {
 
     if (!user) {
       return next(createError('User not found', 404));
+    }
+
+    // Conta de consultor externo (portal) não muda de papel por aqui — o papel
+    // é gerenciado pelo módulo de Parceiros (vínculo 1:1 com o Consultor).
+    // (o schema já garante que `role` nunca é CONSULTOR — qualquer troca de papel
+    // solicitada para uma conta de consultor é bloqueada)
+    if (user.role === UserRole.CONSULTOR && role) {
+      return next(
+        createError('Contas de consultor são gerenciadas pelo módulo de Parceiros', 400, 'CONSULTOR_ROLE_LOCKED')
+      );
     }
 
     // Valida vínculos no tenant antes de aplicar (multi-tenant estrito).

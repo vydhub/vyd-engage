@@ -184,7 +184,9 @@ export function TeamManagement() {
     setLoadingUsers(true);
     try {
       const data = await apiClient.getUsers();
-      setUsers(data as TeamUser[]);
+      // Contas de CONSULTOR (portal do parceiro) são geridas pelo módulo de
+      // Parceiros — não aparecem na gestão de equipe interna.
+      setUsers((data as TeamUser[]).filter((u) => u.role !== 'CONSULTOR'));
     } catch (error: any) {
       toast.error(error.message || 'Erro ao carregar membros da equipe');
     } finally {

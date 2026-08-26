@@ -198,6 +198,15 @@ import('./jobs/atestadoPendenciaChecker.js')
     logger.error('Failed to initialize atestado pendência checker', error);
   });
 
+// Parceiros (PRM): lembretes/expiração/score/digest (always active — no Redis)
+import('./jobs/parceiroChecker.js')
+  .then(({ initializeParceiroChecker }) => {
+    initializeParceiroChecker();
+  })
+  .catch((error) => {
+    logger.error('Failed to initialize parceiro checker', error);
+  });
+
 // Governança (Upgrade RD P1): expira aprovações vencidas + expurgo da lixeira +
 // semeia builtins de perfil de permissão (always active — lightweight, no Redis).
 import('./jobs/governanceJobs.js')
@@ -320,6 +329,9 @@ import proposalRoutes from './routes/proposals.js';
 import contactRoutes from './routes/contacts.js';
 // Gestão de Atestados Técnicos (acervo + concorrências + pendências + currículos)
 import atestadoRoutes from './routes/atestados.js';
+// Gestão de Parceiros Comerciais (PRM): lado interno + Portal do Parceiro
+import parceiroRoutes from './routes/parceiros.js';
+import portalParceiroRoutes from './routes/portalParceiro.js';
 // scaffolding anchor — do not remove (plop injects route imports below)
 // plop:import-route
 
@@ -419,6 +431,8 @@ v1Router.use('/proposal-templates', csrfProtection);
 v1Router.use('/proposals', csrfProtection);
 v1Router.use('/phone', csrfProtection);
 v1Router.use('/atestados', csrfProtection);
+v1Router.use('/parceiros', csrfProtection);
+v1Router.use('/portal-parceiro', csrfProtection);
 // Upgrade RD P3: `/contacts` (resolução por telefone p/ a extensão Chrome, req 24)
 // autentica por `X-API-Key` (não sessão/cookie) → FORA do CSRF, como `/zapier`.
 // NÃO adicionar csrfProtection aqui.
@@ -503,6 +517,8 @@ v1Router.use('/integrations', integrationRoutes);
 v1Router.use('/phone', phoneRoutes);
 v1Router.use('/proposals', proposalRoutes);
 v1Router.use('/atestados', atestadoRoutes);
+v1Router.use('/parceiros', parceiroRoutes);
+v1Router.use('/portal-parceiro', portalParceiroRoutes);
 // Contatos — resolução por telefone p/ a extensão Chrome (Upgrade RD P3, req 24).
 // API-key auth (X-API-Key), sem sessão/CSRF (fora da whitelist acima).
 v1Router.use('/contacts', contactRoutes);

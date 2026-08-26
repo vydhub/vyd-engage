@@ -26,6 +26,10 @@ enum UserRole {
   GESTOR
   USER
   VIEWER
+  // Consultor comercial externo — restrito ao Portal do Parceiro (fail-closed:
+  // o middleware authenticate bloqueia qualquer rota fora do portal; nos
+  // defaults de permissão, papel desconhecido/novo cai em VIEWER = tudo negado).
+  CONSULTOR
 }
 
 enum UserStatus {
@@ -251,6 +255,11 @@ model Tenant {
   pendenciaStatuses     PendenciaStatus[]
   curriculos            Curriculo[]
   atestadoTaxonomias    AtestadoTaxonomia[]
+  // Gestão de Parceiros Comerciais (PRM — consultores externos)
+  consultores           Consultor[]
+  registrosOportunidade RegistroOportunidade[]
+  consultorDocumentos   ConsultorDocumento[]
+  parceiroConfig        ParceiroConfig?
 
   @@index([slug])
 }
@@ -1346,6 +1355,18 @@ enum NotificationType {
   ATESTADO_RT_DESLIGADO
   LEAD_REMINDER
   SYSTEM
+  // Adicionados por 20260710000000_parceiros_comerciais via ALTER TYPE ADD VALUE,
+  // que anexa ao fim do tipo — daí virem depois de SYSTEM.
+  PARCEIRO_REGISTRO_SUBMETIDO
+  PARCEIRO_REGISTRO_DECIDIDO
+  PARCEIRO_UPDATE_PENDENTE
+  PARCEIRO_EXPIRACAO
+  PARCEIRO_CONFLITO
+  PARCEIRO_SCORE
+  PARCEIRO_REUNIAO
+  PARCEIRO_COMISSAO
+  PARCEIRO_EXTENSAO
+  PARCEIRO_ACAO_VENCIDA
 }
 
 enum NotificationStatus {
@@ -2952,4 +2973,489 @@ model AtestadoTaxonomia {
   @@unique([tenantId, tipo, nomeNorm])
   @@index([tenantId, tipo])
   @@map("atestado_taxonomias")
+}
+
+// ============================================
+// GESTÃO DE PARCEIROS COMERCIAIS (PRM — consultores comerciais externos)
+// ============================================
+
+enum ConsultorStatus {
+  ATIVO
+  SUSPENSO
+  INATIVO
+}
+
+enum NdaStatus {
+  PENDENTE
+  ENVIADO
+  ASSINADO
+  RECUSADO
+}
+
+// Ciclo de vida do registro de oportunidade (deal registration).
+enum RegistroStatus {
+  SUBMETIDO
+  EM_ANALISE // candidato a conflito aguardando resolução manual
+  APROVADO // janela de proteção ativa
+  REJEITADO
+  EXPIRADO // janela venceu sem update/extensão — gestor decide caso a caso
+  GANHO
+  PERDIDO
+}
+
+enum ExtensaoStatus {
+  PENDENTE
+  APROVADA
+  NEGADA
+}
+
+enum ConflitoTipo {
+  EXTERNO_EXTERNO // consultor × consultor
+  EXTERNO_INTERNO // consultor × pipeline interno da Tenax
+}
+
+enum ConflitoStatus {
+  ABERTO
+  RESOLVIDO
+}
+
+enum ConflitoDecisao {
+  MANTER // registro segue (aprovável)
+  REJEITAR // registro rejeitado em favor da outra frente
+  INDEPENDENTE // demandas diferentes — não é conflito
+}
+
+enum MatchForca {
+  FORTE // CNPJ igual
+  FRACO // razão social normalizada / contato (sem CNPJ)
+}
+
+enum PlanoAcaoStatus {
+  PENDENTE
+  CONCLUIDA
+  CANCELADA
+}
+
+enum PapelAtribuicao {
+  ORIGINADOR
+  DESENVOLVEDOR
+}
+
+enum ComissaoStatus {
+  A_PAGAR
+  PAGA
+}
+
+enum ReuniaoStatus {
+  AGENDADA
+  REALIZADA
+  CANCELADA
+}
+
+enum PresencaStatus {
+  PRESENTE
+  FALTOU
+}
+
+enum ScoreFaixa {
+  SAUDAVEL
+  ATENCAO
+  ESFRIANDO
+  FRIO
+}
+
+// Consultor comercial externo (parceiro). 1:1 com a conta User (papel CONSULTOR)
+// que dá acesso ao Portal do Parceiro.
+model Consultor {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  userId String @unique // conta de acesso ao portal (scalar; papel CONSULTOR)
+
+  nome           String
+  email          String
+  telefone       String? // WhatsApp — como informado
+  telefoneDigits String? // só dígitos, p/ match de inbound
+  cpfCnpj        String?
+  empresa        String?
+  nivel          String? // nível simples (usado p/ % base)
+  comissaoBase   Decimal         @default(0) @db.Decimal(5, 2) // % base
+  status         ConsultorStatus @default(ATIVO)
+  inicioParceria DateTime?
+
+  // NDA — pré-condição de acesso ao portal
+  ndaStatus       NdaStatus @default(PENDENTE)
+  ndaEnvelopeId   String? // envelope ZapSign (quando enviado eletronicamente)
+  ndaAttachmentId String? // PDF assinado (upload manual ou retorno da assinatura)
+
+  cadenciaReuniaoDias Int? // null → padrão do tenant (ParceiroConfig)
+
+  // Saúde (último cálculo do job)
+  score             Float?
+  scoreFaixa        ScoreFaixa?
+  ultimaAtividadeEm DateTime?
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  registros      RegistroOportunidade[]
+  atribuicoes    RegistroAtribuicao[]
+  reunioes       ConsultorReuniao[]
+  metas          ConsultorMeta[]
+  parcelas       ComissaoParcela[]
+  scoreSnapshots ConsultorScoreSnapshot[]
+  auditoria      ConsultorAuditoria[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, telefoneDigits])
+  // Lookup GLOBAL do webhook ZapSign (sem tenant — o tenant é derivado do match)
+  @@index([ndaEnvelopeId])
+  @@map("consultores")
+}
+
+// Trilha de alterações sensíveis do consultor (ex.: % base de comissão) — req 30.
+model ConsultorAuditoria {
+  id          String    @id @default(uuid())
+  tenantId    String
+  consultorId String
+  consultor   Consultor @relation(fields: [consultorId], references: [id], onDelete: Cascade)
+  evento      String // ex.: COMISSAO_BASE_ALTERADA
+  detalhe     String?   @db.Text
+  valorAntigo String?
+  valorNovo   String?
+  autorId     String?
+  createdAt   DateTime  @default(now())
+
+  @@index([tenantId, consultorId])
+  @@map("consultor_auditorias")
+}
+
+// Registro de Oportunidade (deal registration) — o núcleo do módulo.
+// createdAt é o timestamp IMUTÁVEL do registro (first-to-register).
+model RegistroOportunidade {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  consultorId String
+  consultor   Consultor @relation(fields: [consultorId], references: [id], onDelete: Cascade)
+  criadoPorId String? // usuário interno que abriu em nome do consultor (scalar)
+
+  clienteNome       String
+  clienteCnpj       String? // como informado
+  clienteCnpjDigits String? // só dígitos — chave de match de conflito
+  clienteContato    String?
+  descricao         String  @db.Text // demanda/objeto
+  valorEstimado     Decimal? @db.Decimal(14, 2)
+  observacoes       String?  @db.Text
+
+  status        RegistroStatus @default(SUBMETIDO)
+  decididoPorId String?
+  decididoEm    DateTime?
+  motivoDecisao String?
+
+  // Janela de proteção (definida na aprovação; ajustável pelo gestor)
+  protecaoDias Int?
+  protecaoFim  DateTime?
+  avisoExpiracaoEnviadoEm DateTime? // dedup do aviso de expiração
+
+  // Updates obrigatórios (prova de trabalho)
+  updateCadenciaDias Int? // null → padrão do tenant
+  proximoUpdateEm    DateTime?
+
+  ultimaAtividadeEm DateTime @default(now())
+
+  // Vínculo com o pipeline interno após aprovação (tag PARCEIRO via DealSource)
+  dealId String?
+
+  // Resultado
+  valorContrato Decimal?  @db.Decimal(14, 2) // valor do contrato quando GANHO
+  ganhoEm       DateTime?
+
+  // Split de comissão entre papéis (override; null → padrão do tenant)
+  splitOriginador Int?
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  updates     RegistroUpdate[]
+  extensoes   RegistroExtensao[]
+  conflitos   ConflitoCandidato[]
+  planoAcao   PlanoAcaoItem[]
+  atribuicoes RegistroAtribuicao[]
+  recebimentos Recebimento[]
+  parcelas     ComissaoParcela[]
+  auditoria    RegistroAuditoria[]
+
+  @@index([tenantId])
+  @@index([tenantId, consultorId])
+  @@index([tenantId, status])
+  @@index([tenantId, clienteCnpjDigits])
+  @@index([tenantId, protecaoFim])
+  @@index([tenantId, dealId])
+  @@map("registro_oportunidades")
+}
+
+// Atualização de progresso ("prova de trabalho").
+model RegistroUpdate {
+  id         String               @id @default(uuid())
+  tenantId   String
+  registroId String
+  registro   RegistroOportunidade @relation(fields: [registroId], references: [id], onDelete: Cascade)
+  autorId    String? // user (consultor ou interno)
+  texto      String               @db.Text
+  createdAt  DateTime             @default(now())
+
+  @@index([tenantId, registroId])
+  @@map("registro_updates")
+}
+
+// Pedido de extensão da janela de proteção.
+model RegistroExtensao {
+  id               String               @id @default(uuid())
+  tenantId         String
+  registroId       String
+  registro         RegistroOportunidade @relation(fields: [registroId], references: [id], onDelete: Cascade)
+  justificativa    String               @db.Text
+  diasSolicitados  Int?
+  status           ExtensaoStatus       @default(PENDENTE)
+  decididoPorId    String?
+  decididoEm       DateTime?
+  motivoDecisao    String?
+  createdAt        DateTime             @default(now())
+
+  @@index([tenantId, registroId])
+  @@index([tenantId, status])
+  @@map("registro_extensoes")
+}
+
+// Trilha de auditoria imutável do registro (decisões, conflito, % de comissão...).
+model RegistroAuditoria {
+  id         String               @id @default(uuid())
+  tenantId   String
+  registroId String
+  registro   RegistroOportunidade @relation(fields: [registroId], references: [id], onDelete: Cascade)
+  evento     String // ex.: APROVADO, REJEITADO, CONFLITO_RESOLVIDO, COMISSAO_ALTERADA
+  detalhe    String?              @db.Text // rationale
+  autorId    String?
+  createdAt  DateTime             @default(now())
+
+  @@index([tenantId, registroId])
+  @@map("registro_auditoria")
+}
+
+// Candidato a conflito detectado deterministicamente na submissão (ou depois).
+model ConflitoCandidato {
+  id         String               @id @default(uuid())
+  tenantId   String
+  registroId String
+  registro   RegistroOportunidade @relation(fields: [registroId], references: [id], onDelete: Cascade)
+
+  tipo           ConflitoTipo
+  alvoRegistroId String? // registro de OUTRO consultor (EXTERNO_EXTERNO)
+  alvoDealId     String? // deal interno (EXTERNO_INTERNO)
+  alvoCompanyId  String? // company interna (EXTERNO_INTERNO)
+  matchForca     MatchForca
+  matchChave     String // ex.: "CNPJ 12345678000100" | "NOME+CONTATO"
+
+  status        ConflitoStatus   @default(ABERTO)
+  decisao       ConflitoDecisao?
+  rationale     String?          @db.Text
+  resolvidoPorId String?
+  resolvidoEm   DateTime?
+  createdAt     DateTime         @default(now())
+
+  @@index([tenantId, status])
+  @@index([tenantId, registroId])
+  @@map("conflito_candidatos")
+}
+
+// Item do plano de ação BILATERAL da oportunidade (SLA = dueDate + badge).
+model PlanoAcaoItem {
+  id         String               @id @default(uuid())
+  tenantId   String
+  registroId String
+  registro   RegistroOportunidade @relation(fields: [registroId], references: [id], onDelete: Cascade)
+
+  descricao           String
+  responsavelConsultor Boolean         @default(true) // true = ação do consultor; false = da Tenax
+  responsavelUserId   String? // user interno responsável (quando da Tenax)
+  dueDate             DateTime?
+  status              PlanoAcaoStatus @default(PENDENTE)
+  concluidaEm         DateTime?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  @@index([tenantId, registroId])
+  @@index([tenantId, status, dueDate])
+  @@map("plano_acao_itens")
+}
+
+// Papéis de atribuição da oportunidade (originador/desenvolvedor) + % de comissão.
+model RegistroAtribuicao {
+  id          String               @id @default(uuid())
+  tenantId    String
+  registroId  String
+  registro    RegistroOportunidade @relation(fields: [registroId], references: [id], onDelete: Cascade)
+  consultorId String
+  consultor   Consultor            @relation(fields: [consultorId], references: [id], onDelete: Cascade)
+
+  papel              PapelAtribuicao
+  // % de comissão efetivo deste consultor nesta oportunidade
+  // (null → comissaoBase do consultor). Alterações são auditadas.
+  percentualOverride Decimal?        @db.Decimal(5, 2)
+  createdAt          DateTime        @default(now())
+
+  @@unique([registroId, consultorId, papel])
+  @@index([tenantId, consultorId])
+  @@map("registro_atribuicoes")
+}
+
+// Recebimento do cliente na oportunidade GANHA — libera comissão proporcional.
+model Recebimento {
+  id          String               @id @default(uuid())
+  tenantId    String
+  registroId  String
+  registro    RegistroOportunidade @relation(fields: [registroId], references: [id], onDelete: Cascade)
+  data        DateTime
+  valor       Decimal              @db.Decimal(14, 2)
+  referencia  String? // nº da medição / NF / parcela
+  criadoPorId String?
+  createdAt   DateTime             @default(now())
+
+  parcelas ComissaoParcela[]
+
+  @@index([tenantId, registroId])
+  @@map("parceiro_recebimentos")
+}
+
+// Parcela de comissão liberada por um recebimento, por consultor/papel.
+model ComissaoParcela {
+  id            String               @id @default(uuid())
+  tenantId      String
+  registroId    String
+  registro      RegistroOportunidade @relation(fields: [registroId], references: [id], onDelete: Cascade)
+  consultorId   String
+  consultor     Consultor            @relation(fields: [consultorId], references: [id], onDelete: Cascade)
+  recebimentoId String
+  recebimento   Recebimento          @relation(fields: [recebimentoId], references: [id], onDelete: Cascade)
+
+  papel              PapelAtribuicao
+  percentualAplicado Decimal         @db.Decimal(5, 2) // % efetivo usado
+  fracaoPapel        Int // % do split do papel (ex.: 60)
+  valor              Decimal         @db.Decimal(14, 2)
+
+  status          ComissaoStatus @default(A_PAGAR)
+  marcadaPagaPorId String?
+  marcadaPagaEm   DateTime?
+  createdAt       DateTime       @default(now())
+
+  @@index([tenantId, consultorId])
+  @@index([tenantId, status])
+  @@map("comissao_parcelas")
+}
+
+// Reunião da cadência formal com o consultor (presença alimenta o score).
+model ConsultorReuniao {
+  id          String        @id @default(uuid())
+  tenantId    String
+  consultorId String
+  consultor   Consultor     @relation(fields: [consultorId], references: [id], onDelete: Cascade)
+  dataHora    DateTime
+  pauta       String?
+  participantes Json?       // lista de participantes (nomes/userIds) — req 27
+  status      ReuniaoStatus @default(AGENDADA)
+  presenca    PresencaStatus?
+  observacoes String?       @db.Text
+  criadoPorId String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([tenantId, consultorId])
+  @@index([tenantId, status, dataHora])
+  @@map("consultor_reunioes")
+}
+
+// Meta por consultor (mês/ano) — meta vs. realizado.
+model ConsultorMeta {
+  id           String    @id @default(uuid())
+  tenantId     String
+  consultorId  String
+  consultor    Consultor @relation(fields: [consultorId], references: [id], onDelete: Cascade)
+  month        Int
+  year         Int
+  alvoRegistros Int      @default(0) // nº de oportunidades registradas
+  alvoPipeline  Decimal  @default(0) @db.Decimal(14, 2) // valor de pipeline
+  alvoGanho     Decimal  @default(0) @db.Decimal(14, 2) // valor ganho
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([tenantId, consultorId, month, year])
+  @@index([tenantId, consultorId])
+  @@map("consultor_metas")
+}
+
+// Documento/template da empresa disponível aos consultores no portal.
+model ConsultorDocumento {
+  id           String   @id @default(uuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  titulo       String
+  attachmentId String // scalar (padrão do repo)
+  ativo        Boolean  @default(true) // visível aos consultores
+  criadoPorId  String?
+  createdAt    DateTime @default(now())
+
+  @@index([tenantId, ativo])
+  @@map("consultor_documentos")
+}
+
+// Snapshot periódico do score (histórico p/ tendência/delta).
+model ConsultorScoreSnapshot {
+  id          String     @id @default(uuid())
+  tenantId    String
+  consultorId String
+  consultor   Consultor  @relation(fields: [consultorId], references: [id], onDelete: Cascade)
+  data        DateTime   @default(now())
+  score       Float
+  faixa       ScoreFaixa
+  sinais      Json? // decomposição dos sinais (auditável)
+
+  @@index([tenantId, consultorId, data])
+  @@map("consultor_score_snapshots")
+}
+
+// Configuração do módulo por tenant (versionável via updatedAt; nunca hard-coded).
+model ParceiroConfig {
+  id       String @id @default(uuid())
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  protecaoDiasPadrao    Int   @default(90) // janela de proteção padrão
+  updateCadenciaDias    Int   @default(30) // cadência de update obrigatório
+  avisoExpiracaoDias    Int   @default(7) // antecedência do aviso de expiração
+  splitOriginadorPadrao Int   @default(60) // % do originador no split (resto = desenvolvedor)
+  reuniaoCadenciaDias   Int   @default(30) // cadência padrão de reuniões
+  // Pesos dos sinais do score (soma 100): novasOportunidades, updatesCumpridos,
+  // presencaReunioes, progressaoPipeline
+  scorePesos    Json @default("{\"novasOportunidades\":25,\"updatesCumpridos\":25,\"presencaReunioes\":25,\"progressaoPipeline\":25}")
+  // Limiares das faixas: SAUDAVEL >= saudavel, ATENCAO >= atencao, ESFRIANDO >= esfriando, senão FRIO
+  scoreLimiares Json @default("{\"saudavel\":75,\"atencao\":50,\"esfriando\":25}")
+  // Decaimento por inatividade: pontos descontados por dia sem atividade (até o teto)
+  decaimentoPontosPorDia Float @default(0.5)
+  decaimentoMaxPontos    Int   @default(30)
+  // Alerta por TENDÊNCIA (req 26): queda de score >= N pontos vs. ciclo anterior
+  // dispara alerta mesmo sem mudança de faixa.
+  quedaLimiarPontos     Int   @default(15)
+  // Usuário designado p/ resolver conflitos EXTERNO_INTERNO (null → ADMINs)
+  conflitoInternoUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("parceiro_configs")
 }

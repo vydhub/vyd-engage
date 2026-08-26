@@ -65,6 +65,13 @@ export const categories: NavCategory[] = [
       { icon: Handshake, label: 'Deals', path: '/app/deals', tourId: 'sidebar-deals' },
       { icon: GitBranch, label: 'Pipeline', path: '/app/pipeline', tourId: 'sidebar-pipeline' },
       { icon: CheckSquare, label: 'Tarefas', path: '/app/tasks', tourId: 'sidebar-tasks' },
+      {
+        icon: UsersRound,
+        label: 'Parceiros',
+        path: '/app/parceiros',
+        tourId: 'sidebar-parceiros',
+        capability: 'accessParceiros',
+      },
     ],
   },
   {

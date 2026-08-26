@@ -655,3 +655,149 @@ export function renderCurriculoPdf(input: CurriculoPdfInput): Promise<Buffer> {
     }
   });
 }
+
+// ─── Relatório Executivo — Parceiros Comerciais (PRM) ─────────────────────────
+// Reusa pdfkit (offline/determinístico), mesmo estilo do dossiê de atestados.
+
+const FAIXA_LABEL: Record<string, string> = {
+  SAUDAVEL: 'Saudável',
+  ATENCAO: 'Atenção',
+  ESFRIANDO: 'Esfriando',
+  FRIO: 'Frio',
+};
+
+export interface ParceiroReportConsultorLine {
+  nome: string;
+  faixa: string | null;
+  score: number | null;
+  diasSemAtividade: number | null;
+  registrosAtivos: number;
+  pipeline: number;
+  ganho: number;
+  metaPct: number | null;
+}
+
+export interface ParceiroReportPdfInput {
+  tenantName: string;
+  periodo: string;
+  dataGeracao: string;
+  indicadores: {
+    consultoresAtivos: number;
+    consultoresDormentes: number;
+    pipelineParceiros: number;
+    ganhoPeriodo: number;
+    conflitosAbertos: number;
+    conflitosResolvidos?: number;
+    registrosPendentes: number;
+    comissoesLiberadas: number;
+    tempoMedioAprovacaoDias?: number;
+    taxaExpiracao?: number;
+  };
+  consultores: ParceiroReportConsultorLine[];
+  generatedBy?: string;
+}
+
+/** Gera o relatório executivo do programa de parceiros (indicadores + consultores). */
+export function renderParceiroReportPdf(input: ParceiroReportPdfInput): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ size: 'A4', margin: 50 });
+      const chunks: Buffer[] = [];
+      doc.on('data', (c: Buffer) => chunks.push(c));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      // ── Capa ──────────────────────────────────────────────────────────────
+      atHeader(
+        doc,
+        'Relatório Executivo — Parceiros Comerciais',
+        `${input.periodo} · ${input.tenantName} · Gerado em ${input.dataGeracao}`
+      );
+
+      // ── Indicadores do Programa ───────────────────────────────────────────
+      doc.fillColor(AT_ACCENT).fontSize(13).font('Helvetica-Bold').text('Indicadores do Programa');
+      doc.moveDown(0.5);
+
+      const ind = input.indicadores;
+      // Dois grupos SEPARADOS de propósito: misturá-los faria números acumulados
+      // parecerem do período impresso no cabeçalho. "No período" é filtrado pela
+      // janela; "Posição atual" é uma foto de agora, independente da janela.
+      const doPeriodo: Array<[string, string]> = [
+        ['Ganho no período', BRL.format(ind.ganhoPeriodo)],
+        ['Comissões liberadas', BRL.format(ind.comissoesLiberadas)],
+        ...(ind.conflitosResolvidos != null
+          ? ([['Conflitos resolvidos', String(ind.conflitosResolvidos)]] as Array<[string, string]>)
+          : []),
+        ...(ind.tempoMedioAprovacaoDias != null
+          ? ([
+              ['Tempo médio de aprovação', `${ind.tempoMedioAprovacaoDias} dias`],
+            ] as Array<[string, string]>)
+          : []),
+      ];
+      const posicaoAtual: Array<[string, string]> = [
+        ['Consultores ativos', String(ind.consultoresAtivos)],
+        ['Consultores dormentes', String(ind.consultoresDormentes)],
+        ['Pipeline de parceiros', BRL.format(ind.pipelineParceiros)],
+        ['Conflitos abertos', String(ind.conflitosAbertos)],
+        ['Registros aguardando aprovação', String(ind.registrosPendentes)],
+        // Acumulada: EXPIRADO não carimba data de decisão, então não há como
+        // recortá-la por janela sem inventar o dado.
+        ...(ind.taxaExpiracao != null
+          ? ([['Taxa de expiração (acumulada)', `${ind.taxaExpiracao}%`]] as Array<[string, string]>)
+          : []),
+      ];
+
+      const escreveGrupo = (titulo: string, linhas: Array<[string, string]>) => {
+        atPageBreak(doc, 80);
+        doc.fillColor(AT_INK).fontSize(10).font('Helvetica-Bold').text(titulo);
+        doc.moveDown(0.3);
+        for (const [rotulo, valor] of linhas) {
+          atPageBreak(doc, 60);
+          doc.fillColor(AT_MUTED).fontSize(10).font('Helvetica').text(`${rotulo}: `, { continued: true });
+          doc.fillColor(AT_INK).font('Helvetica-Bold').text(valor);
+          doc.moveDown(0.2);
+        }
+        doc.moveDown(0.6);
+      };
+
+      escreveGrupo(`No período (${input.periodo})`, doPeriodo);
+      escreveGrupo('Posição atual', posicaoAtual);
+      doc.moveDown(0.2);
+
+      // ── Consultores ───────────────────────────────────────────────────────
+      atPageBreak(doc, 100);
+      doc.fillColor(AT_ACCENT).fontSize(13).font('Helvetica-Bold').text('Consultores');
+      doc.moveDown(0.5);
+
+      if (input.consultores.length === 0) {
+        doc.fillColor(AT_MUTED).fontSize(10).font('Helvetica').text('Nenhum consultor no período.');
+      }
+      for (const c of input.consultores) {
+        atPageBreak(doc, 80);
+        doc.fillColor(AT_INK).fontSize(11).font('Helvetica-Bold').text(c.nome);
+        const meta: string[] = [];
+        if (c.faixa != null) meta.push(FAIXA_LABEL[c.faixa] ?? c.faixa);
+        if (c.score != null) meta.push(`score ${c.score.toFixed(0)}`);
+        if (c.diasSemAtividade != null) meta.push(`${c.diasSemAtividade} dias sem atividade`);
+        meta.push(`${c.registrosAtivos} registros ativos`);
+        meta.push(`pipeline ${BRL.format(c.pipeline)}`);
+        meta.push(`ganho no período ${BRL.format(c.ganho)}`);
+        if (c.metaPct != null) meta.push(`meta ${c.metaPct.toFixed(0)}%`);
+        doc.moveDown(0.1).fillColor(AT_MUTED).fontSize(9).font('Helvetica').text(meta.join('  ·  '));
+        doc.moveDown(0.5);
+      }
+
+      doc.moveDown(1);
+      doc
+        .fillColor(AT_MUTED)
+        .fontSize(9)
+        .font('Helvetica')
+        .text(input.generatedBy ? `Gerado por ${input.generatedBy} via VYD Engage` : 'Gerado via VYD Engage', {
+          align: 'center',
+        });
+      doc.end();
+    } catch (err) {
+      reject(err as Error);
+    }
+  });
+}

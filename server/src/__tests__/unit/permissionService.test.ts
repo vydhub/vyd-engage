@@ -54,6 +54,8 @@ describe('defaultsForRole — mapeamento role → defaults (== HOJE)', () => {
       viewReports: true,
       accessAtestados: false,
       manageAtestados: false,
+      accessParceiros: false,
+      manageParceiros: false,
     });
     expect(d.visibility).toEqual({ deals: 'PROPRIA', companies: 'GERAL', contacts: 'GERAL' });
     // Eixo por-entidade (req 13): USER cria/edita/exclui as 4 entidades (== hoje).
@@ -78,6 +80,8 @@ describe('defaultsForRole — mapeamento role → defaults (== HOJE)', () => {
       viewReports: true,
       accessAtestados: false,
       manageAtestados: false,
+      accessParceiros: false,
+      manageParceiros: false,
     });
     // BYTE-A-BYTE == HOJE: ownerScope nunca restringia o VIEWER (só o USER analista);
     // VIEWER permanece tenant-wide (GERAL). Entidades todas false (só-leitura).

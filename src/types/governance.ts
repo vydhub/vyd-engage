@@ -15,7 +15,9 @@ export type Capability =
   | 'transferOwner'
   | 'viewReports'
   | 'accessAtestados'
-  | 'manageAtestados';
+  | 'manageAtestados'
+  | 'accessParceiros'
+  | 'manageParceiros';
 
 export type Capabilities = Record<Capability, boolean>;
 

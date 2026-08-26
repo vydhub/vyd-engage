@@ -90,6 +90,30 @@ import type {
   Curriculo,
 } from '../../types/atestados';
 import type {
+  PainelData,
+  Consultor,
+  ConsultorInput,
+  Registro,
+  RegistroInput,
+  RegistroUpdate,
+  RegistroExtensao,
+  ConflitoCandidato,
+  ConflitoDecisao,
+  OverlapRow,
+  ExtratoComissao,
+  ComissaoParcela,
+  Recebimento,
+  PapelAtribuicao,
+  ConsultorReuniao,
+  ConsultorMeta,
+  MetaProgress,
+  ConsultorDocumento,
+  ParceiroConfig,
+  ScoreSnapshot,
+  PortalPerfil,
+  PlanoAcaoItem,
+} from '../../types/parceiros';
+import type {
   Meeting,
   ApplyMeetingInput,
   ApplyMeetingResult,
@@ -3510,6 +3534,159 @@ class ApiClient {
 
   getAtestadoConfig() { return this.atGet<{ atestadoAlertDays: number }>('/config'); }
   updateAtestadoConfig(data: { atestadoAlertDays: number }) { return this.atSend<{ atestadoAlertDays: number }>('/config', 'PUT', data); }
+
+  // ── Gestão de Parceiros Comerciais (interno) ───────────────────────────────
+  private async pGet<T>(path: string): Promise<T> {
+    const res = await this.request<{ status: number; data: T }>(`/api/v1/parceiros${path}`);
+    return res.data;
+  }
+  private async pSend<T>(path: string, method: string, body?: unknown): Promise<T> {
+    const res = await this.request<{ status: number; data: T }>(`/api/v1/parceiros${path}`, {
+      method,
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+    return res.data;
+  }
+  private async pUpload<T>(path: string, file: File, fields: Record<string, string> = {}): Promise<T> {
+    const csrfToken = this.getCsrfToken();
+    const headers: Record<string, string> = {};
+    if (csrfToken) headers['x-csrf-token'] = csrfToken;
+    const formData = new FormData();
+    formData.append('file', file);
+    for (const [k, v] of Object.entries(fields)) formData.append(k, v);
+    const response = await fetch(`${this.baseURL}/api/v1/parceiros${path}`, {
+      method: 'POST',
+      headers,
+      body: formData,
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Falha no upload' }));
+      throw new ApiError((errorData.error as string) || 'Falha no upload', response.status, errorData);
+    }
+    const json = (await response.json()) as { status: number; data: T };
+    return json.data;
+  }
+
+  getParceirosPainel() { return this.pGet<PainelData>('/painel'); }
+  listConsultores(params: Record<string, string> = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return this.pGet<Consultor[]>(`/consultores${qs ? `?${qs}` : ''}`);
+  }
+  getConsultor(id: string) { return this.pGet<Consultor & { metas?: ConsultorMeta[]; reunioes?: ConsultorReuniao[] }>(`/consultores/${id}`); }
+  getConsultorScoreHistory(id: string) { return this.pGet<ScoreSnapshot[]>(`/consultores/${id}/score-history`); }
+  createConsultor(data: ConsultorInput) { return this.pSend<Consultor>('/consultores', 'POST', data); }
+  updateConsultor(id: string, data: Partial<ConsultorInput>) { return this.pSend<Consultor>(`/consultores/${id}`, 'PUT', data); }
+  deleteConsultor(id: string) { return this.pSend<{ id: string }>(`/consultores/${id}`, 'DELETE'); }
+  enviarNda(consultorId: string, file: File) { return this.pUpload<Consultor>(`/consultores/${consultorId}/nda/enviar`, file); }
+  uploadNdaManual(consultorId: string, file: File) { return this.pUpload<Consultor>(`/consultores/${consultorId}/nda/manual`, file); }
+
+  listRegistros(params: Record<string, string> = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return this.pGet<Registro[]>(`/registros${qs ? `?${qs}` : ''}`);
+  }
+  getRegistro(id: string) { return this.pGet<Registro>(`/registros/${id}`); }
+  createRegistroInterno(data: RegistroInput & { consultorId: string }) { return this.pSend<Registro>('/registros', 'POST', data); }
+  aprovarRegistro(id: string, data: { protecaoDias?: number; motivo?: string } = {}) { return this.pSend<Registro>(`/registros/${id}/aprovar`, 'POST', data); }
+  rejeitarRegistro(id: string, motivo: string) { return this.pSend<Registro>(`/registros/${id}/rejeitar`, 'POST', { motivo }); }
+  marcarGanho(id: string, valorContrato: number) { return this.pSend<Registro>(`/registros/${id}/ganho`, 'POST', { valorContrato }); }
+  marcarPerdido(id: string, motivo?: string) { return this.pSend<Registro>(`/registros/${id}/perdido`, 'POST', { motivo }); }
+  reativarRegistro(id: string, data: { protecaoDias?: number; motivo?: string } = {}) { return this.pSend<Registro>(`/registros/${id}/reativar`, 'POST', data); }
+  ajustarProtecao(id: string, data: { dias?: number; novoFim?: string; motivo: string }) { return this.pSend<Registro>(`/registros/${id}/protecao`, 'PATCH', data); }
+  atualizarCliente(id: string, data: { clienteNome?: string; clienteCnpj?: string | null; clienteContato?: string | null }) { return this.pSend<Registro>(`/registros/${id}`, 'PUT', data); }
+  addRegistroUpdate(id: string, texto: string) { return this.pSend<RegistroUpdate>(`/registros/${id}/updates`, 'POST', { texto }); }
+  listPlano(registroId: string) { return this.pGet<PlanoAcaoItem[]>(`/registros/${registroId}/plano`); }
+  createPlanoItem(registroId: string, data: { descricao: string; responsavelConsultor: boolean; responsavelUserId?: string | null; dueDate?: string | null }) {
+    return this.pSend<PlanoAcaoItem>(`/registros/${registroId}/plano`, 'POST', data);
+  }
+  updatePlanoItem(id: string, data: Partial<{ descricao: string; responsavelConsultor: boolean; responsavelUserId: string | null; dueDate: string | null; status: string }>) {
+    return this.pSend<PlanoAcaoItem>(`/plano/${id}`, 'PUT', data);
+  }
+  deletePlanoItem(id: string) { return this.pSend<{ id: string }>(`/plano/${id}`, 'DELETE'); }
+
+  listExtensoes(status = 'PENDENTE') { return this.pGet<RegistroExtensao[]>(`/extensoes?status=${status}`); }
+  decidirExtensao(id: string, data: { aprovar: boolean; dias?: number; motivo?: string }) { return this.pSend<Registro>(`/extensoes/${id}/decidir`, 'POST', data); }
+
+  listConflitos(status: 'ABERTO' | 'RESOLVIDO' = 'ABERTO') { return this.pGet<ConflitoCandidato[]>(`/conflitos?status=${status}`); }
+  getSobreposicao() { return this.pGet<OverlapRow[]>('/sobreposicao'); }
+  resolverConflito(id: string, data: { decisao: ConflitoDecisao; rationale: string }) { return this.pSend<ConflitoCandidato[]>(`/conflitos/${id}/resolver`, 'POST', data); }
+
+  getExtratoComissoes(params: Record<string, string> = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return this.pGet<ExtratoComissao>(`/comissoes/extrato${qs ? `?${qs}` : ''}`);
+  }
+  setAtribuicao(registroId: string, data: { consultorId: string; papel: PapelAtribuicao; percentualOverride?: number | null }) {
+    return this.pSend<unknown>(`/registros/${registroId}/atribuicoes`, 'POST', data);
+  }
+  removeAtribuicao(id: string) { return this.pSend<{ id: string }>(`/atribuicoes/${id}`, 'DELETE'); }
+  setSplit(registroId: string, splitOriginador: number) { return this.pSend<unknown>(`/registros/${registroId}/split`, 'PUT', { splitOriginador }); }
+  addRecebimento(registroId: string, data: { data: string; valor: number; referencia?: string | null }) {
+    return this.pSend<{ recebimento: Recebimento; excedeuContrato: boolean }>(`/registros/${registroId}/recebimentos`, 'POST', data);
+  }
+  removeRecebimento(id: string) { return this.pSend<{ id: string }>(`/recebimentos/${id}`, 'DELETE'); }
+  marcarParcelaPaga(id: string, paga: boolean) { return this.pSend<ComissaoParcela>(`/comissoes/parcelas/${id}/pagar`, 'POST', { paga }); }
+
+  listReunioesParceiros(params: Record<string, string> = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return this.pGet<ConsultorReuniao[]>(`/reunioes${qs ? `?${qs}` : ''}`);
+  }
+  createReuniao(data: { consultorId: string; dataHora: string; pauta?: string | null; participantes?: string[] | null }) { return this.pSend<ConsultorReuniao>('/reunioes', 'POST', data); }
+  updateReuniao(id: string, data: Partial<{ dataHora: string; pauta: string | null; participantes: string[] | null; observacoes: string | null; status: string; presenca: 'PRESENTE' | 'FALTOU' }>) {
+    return this.pSend<ConsultorReuniao>(`/reunioes/${id}`, 'PUT', data);
+  }
+  registrarPresenca(id: string, presenca: 'PRESENTE' | 'FALTOU', observacoes?: string) {
+    return this.pSend<ConsultorReuniao>(`/reunioes/${id}/presenca`, 'POST', { presenca, observacoes });
+  }
+  deleteReuniao(id: string) { return this.pSend<{ id: string }>(`/reunioes/${id}`, 'DELETE'); }
+
+  listMetasParceiros(consultorId?: string) {
+    const qs = consultorId ? `?consultorId=${consultorId}` : '';
+    return this.pGet<ConsultorMeta[]>(`/metas${qs}`);
+  }
+  getMetaProgress(consultorId: string, month: number, year: number) {
+    return this.pGet<MetaProgress>(`/metas/progress?consultorId=${consultorId}&month=${month}&year=${year}`);
+  }
+  upsertMeta(data: { consultorId: string; month: number; year: number; alvoRegistros?: number; alvoPipeline?: number; alvoGanho?: number }) {
+    return this.pSend<ConsultorMeta>('/metas', 'POST', data);
+  }
+  deleteMeta(id: string) { return this.pSend<{ id: string }>(`/metas/${id}`, 'DELETE'); }
+
+  listDocumentosParceiros() { return this.pGet<ConsultorDocumento[]>('/documentos'); }
+  uploadDocumentoParceiro(titulo: string, file: File) { return this.pUpload<ConsultorDocumento>('/documentos', file, { titulo }); }
+  updateDocumentoParceiro(id: string, data: { titulo?: string; ativo?: boolean }) { return this.pSend<ConsultorDocumento>(`/documentos/${id}`, 'PUT', data); }
+  deleteDocumentoParceiro(id: string) { return this.pSend<{ id: string }>(`/documentos/${id}`, 'DELETE'); }
+
+  getParceiroConfig() { return this.pGet<ParceiroConfig>('/config'); }
+  updateParceiroConfig(data: Partial<ParceiroConfig>) { return this.pSend<ParceiroConfig>('/config', 'PUT', data); }
+  gerarRelatorioParceiros(params?: { periodo?: string; inicio?: string; fim?: string }) { return this.pSend<{ attachmentId: string }>('/relatorio', 'POST', params ?? {}); }
+
+  // ── Portal do Parceiro (consultor externo) ─────────────────────────────────
+  private async ppGet<T>(path: string): Promise<T> {
+    const res = await this.request<{ status: number; data: T }>(`/api/v1/portal-parceiro${path}`);
+    return res.data;
+  }
+  private async ppSend<T>(path: string, method: string, body?: unknown): Promise<T> {
+    const res = await this.request<{ status: number; data: T }>(`/api/v1/portal-parceiro${path}`, {
+      method,
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+    return res.data;
+  }
+
+  portalPerfil() { return this.ppGet<PortalPerfil>('/perfil'); }
+  portalRegistros() { return this.ppGet<Registro[]>('/registros'); }
+  portalRegistro(id: string) { return this.ppGet<Registro>(`/registros/${id}`); }
+  portalCriarRegistro(data: RegistroInput) { return this.ppSend<Registro>('/registros', 'POST', data); }
+  portalAddUpdate(id: string, texto: string) { return this.ppSend<RegistroUpdate>(`/registros/${id}/updates`, 'POST', { texto }); }
+  portalPedirExtensao(id: string, data: { justificativa: string; diasSolicitados?: number }) {
+    return this.ppSend<RegistroExtensao>(`/registros/${id}/extensao`, 'POST', data);
+  }
+  portalConcluirAcao(id: string) { return this.ppSend<PlanoAcaoItem>(`/acoes/${id}/concluir`, 'POST'); }
+  portalComissoes() { return this.ppGet<ExtratoComissao>('/comissoes'); }
+  portalMetas() { return this.ppGet<{ metas: ConsultorMeta[]; progressoAtual: MetaProgress | null }>('/metas'); }
+  portalReunioes() { return this.ppGet<ConsultorReuniao[]>('/reunioes'); }
+  portalDocumentos() { return this.ppGet<ConsultorDocumento[]>('/documentos'); }
+  portalDocumentoDownloadUrl(id: string) { return `${this.baseURL}/api/v1/portal-parceiro/documentos/${id}/download`; }
 }
 
 // ── API Hub types (api-hub spec) ────────────────────

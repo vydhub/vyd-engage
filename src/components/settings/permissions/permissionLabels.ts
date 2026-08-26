@@ -27,6 +27,26 @@ export const CAPABILITY_LABELS: Array<{ key: Capability; label: string; hint: st
     hint: 'Reatribuir registros a outra pessoa',
   },
   { key: 'viewReports', label: 'Ver relatórios', hint: 'Acessar dashboards e relatórios' },
+  {
+    key: 'accessAtestados',
+    label: 'Acessar Atestados Técnicos',
+    hint: 'Ver o módulo de acervo técnico e concorrências',
+  },
+  {
+    key: 'manageAtestados',
+    label: 'Gerenciar Atestados Técnicos',
+    hint: 'Cadastrar/editar atestados, profissionais e configurações',
+  },
+  {
+    key: 'accessParceiros',
+    label: 'Acessar Parceiros Comerciais',
+    hint: 'Ver o módulo de consultores externos e registros de oportunidade',
+  },
+  {
+    key: 'manageParceiros',
+    label: 'Gerenciar Parceiros Comerciais',
+    hint: 'Aprovar registros, resolver conflitos, comissões, documentos e config',
+  },
 ];
 
 /** As 3 dimensões de visibilidade (selects do editor). */

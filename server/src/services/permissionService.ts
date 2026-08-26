@@ -34,7 +34,10 @@ export type Capability =
   // Gestão de Atestados Técnicos — acesso ao módulo (gate próprio) e gestão (escrita).
   // Default OFF para USER/VIEWER: o acesso é restrito a um perfil específico.
   | 'accessAtestados'
-  | 'manageAtestados';
+  | 'manageAtestados'
+  // Gestão de Parceiros Comerciais (PRM) — mesmo padrão de gate próprio.
+  | 'accessParceiros'
+  | 'manageParceiros';
 
 export type VisibilityLevel = 'PROPRIA' | 'EQUIPE' | 'GERAL';
 
@@ -58,6 +61,8 @@ export interface Capabilities {
   viewReports: boolean;
   accessAtestados: boolean;
   manageAtestados: boolean;
+  accessParceiros: boolean;
+  manageParceiros: boolean;
 }
 
 /** Permissões por-entidade (create/edit/delete) por tipo de registro (req 13). */
@@ -111,6 +116,9 @@ export const BUILTIN_PROFILE_NAMES: Record<UserRole, string> = {
   GESTOR: 'Gestor',
   USER: 'Vendedor',
   VIEWER: 'Visualizador',
+  // CONSULTOR (portal do parceiro) não tem builtin semeado — o papel é fail-closed
+  // (defaultsForRole cai em VIEWER) e o acesso dele é só ao portal (gate no authenticate).
+  CONSULTOR: 'Consultor Externo',
 };
 
 // ── Defaults por baseRole (== HOJE) ──────────────────────────────────────────
@@ -126,6 +134,8 @@ const ALL_CAPS_TRUE: Capabilities = {
   viewReports: true,
   accessAtestados: true,
   manageAtestados: true,
+  accessParceiros: true,
+  manageParceiros: true,
 };
 
 const USER_CAPS: Capabilities = {
@@ -143,6 +153,8 @@ const USER_CAPS: Capabilities = {
   // Acesso ao módulo de Atestados é restrito a um perfil específico (default OFF).
   accessAtestados: false,
   manageAtestados: false,
+  accessParceiros: false,
+  manageParceiros: false,
 };
 
 const VIEWER_CAPS: Capabilities = {
@@ -156,6 +168,8 @@ const VIEWER_CAPS: Capabilities = {
   viewReports: true,
   accessAtestados: false,
   manageAtestados: false,
+  accessParceiros: false,
+  manageParceiros: false,
 };
 
 const GERAL_VISIBILITY: VisibilityMap = { deals: 'GERAL', companies: 'GERAL', contacts: 'GERAL' };

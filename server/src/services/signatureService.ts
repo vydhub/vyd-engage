@@ -99,6 +99,46 @@ export const signatureService = {
   },
 
   /**
+   * Cria um documento/envelope ZapSign a partir de um PDF genérico (sem acoplar a
+   * Proposal). Usado pelo NDA do módulo de Parceiros. Retorna o envelopeId.
+   * Sem credencial → 400 SIGNATURE_NOT_CONFIGURED (mesmo gate do sendForSignature).
+   */
+  async createEnvelope(
+    tenantId: string,
+    doc: { name: string; pdfBuffer: Buffer; signerName: string; signerEmail: string }
+  ): Promise<string> {
+    const config = await integrationService.getConfig<SignatureConfig>(tenantId, 'SIGNATURE');
+    if (!config) {
+      throw createError(
+        'Assinatura eletrônica não configurada para este tenant.',
+        400,
+        'SIGNATURE_NOT_CONFIGURED'
+      );
+    }
+    const { ok, status, body } = await safeFetchJson(`${ZAPSIGN_BASE_URL}/docs/`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${config.apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: doc.name,
+        base64_pdf: doc.pdfBuffer.toString('base64'),
+        signers: [{ name: doc.signerName, email: doc.signerEmail }],
+        lang: 'pt-br',
+      }),
+    });
+    if (!ok) {
+      logger.warn('ZapSign send failed (envelope)', { status, tenantId });
+      throw createError('Falha ao enviar o documento para assinatura no provedor.', 502, 'SIGNATURE_PROVIDER_ERROR', {
+        providerStatus: status,
+      });
+    }
+    const envelopeId: string | undefined = body?.token || body?.doc?.token || body?.id;
+    if (!envelopeId) {
+      throw createError('Provedor de assinatura não retornou um identificador de envelope.', 502, 'SIGNATURE_PROVIDER_ERROR');
+    }
+    return envelopeId;
+  },
+
+  /**
    * Envia a proposta gerada (PDF) para assinatura via ZapSign.
    * - Sem credencial → 400 SIGNATURE_NOT_CONFIGURED.
    * - Proposta inexistente/de outro tenant → 404.
@@ -222,7 +262,12 @@ export const signatureService = {
     const proposal = await prisma.proposal.findFirst({
       where: { signatureEnvelopeId: envelopeId },
     });
-    if (!proposal) return { handled: false, reason: 'proposal_not_found' };
+    if (!proposal) {
+      // Fallback: NDA de consultor (módulo de Parceiros) — o token do ZapSign é
+      // globalmente único, então o lookup em duas tabelas é seguro. O tenant é
+      // derivado do consultor e o HMAC validado com o secret DESSE tenant.
+      return this.handleNdaWebhook(rawBody, headerSignature, envelopeId, payload);
+    }
     const deal = await prisma.deal.findUnique({
       where: { id: proposal.dealId },
       select: { id: true, name: true, assignedTo: true },
@@ -282,6 +327,73 @@ export const signatureService = {
           metadata: { proposalId: proposal.id, dealId: deal.id },
         })
         .catch((err) => logger.error('Falha ao notificar assinatura', err));
+    }
+
+    return { handled: true, signatureStatus: nextStatus };
+  },
+
+  /**
+   * Fallback do webhook para o NDA de consultor (módulo de Parceiros). Mesmo
+   * contrato do handleWebhook: identifica pelo envelopeId, valida HMAC com o
+   * secret do tenant do consultor e atualiza o ndaStatus. SIGNED libera o portal;
+   * REFUSED/EXPIRED mantêm bloqueado e notificam o gestor. Nunca lança.
+   */
+  async handleNdaWebhook(
+    rawBody: string,
+    headerSignature: string | undefined,
+    envelopeId: string,
+    payload: any
+  ): Promise<{ handled: boolean; reason?: string; signatureStatus?: SignatureStatus }> {
+    const consultor = await prisma.consultor.findFirst({ where: { ndaEnvelopeId: envelopeId } });
+    if (!consultor) return { handled: false, reason: 'envelope_not_found' };
+
+    const config = await integrationService.getConfig<SignatureConfig>(consultor.tenantId, 'SIGNATURE');
+    if (!config) return { handled: false, reason: 'not_configured' };
+    if (!this.verifyWebhookSignature(config.webhookSecret, rawBody, headerSignature)) {
+      logger.warn('ZapSign webhook (NDA): invalid signature', { envelopeId });
+      return { handled: false, reason: 'invalid_signature' };
+    }
+
+    const rawStatus: string | undefined =
+      payload?.status || payload?.doc?.status || payload?.event_type || payload?.event;
+    const nextStatus = mapZapSignStatus(rawStatus);
+    if (!nextStatus) return { handled: false, reason: 'unmapped_status' };
+
+    // Mapeia SignatureStatus → NdaStatus da spec: SENT|VIEWED→ENVIADO,
+    // SIGNED→ASSINADO, REFUSED|EXPIRED→RECUSADO (ambos mantêm o portal bloqueado).
+    const ndaStatus =
+      nextStatus === 'SIGNED'
+        ? ('ASSINADO' as const)
+        : nextStatus === 'REFUSED' || nextStatus === 'EXPIRED'
+          ? ('RECUSADO' as const)
+          : ('ENVIADO' as const);
+
+    await prisma.consultor.update({ where: { id: consultor.id }, data: { ndaStatus } });
+
+    // Notifica ADMIN + GESTOR do desfecho (best-effort) — o gestor de parceiros
+    // precisa saber, não só o ADMIN. Usa notifyParceiro (in-app + e-mail).
+    if (ndaStatus !== 'ENVIADO') {
+      const gestores = await prisma.user
+        .findMany({
+          where: { tenantId: consultor.tenantId, role: { in: ['ADMIN', 'GESTOR'] }, status: 'ACTIVE' },
+          select: { id: true },
+        })
+        .catch(() => [] as { id: string }[]);
+      const userIds = gestores.map((u) => u.id);
+      if (userIds.length > 0) {
+        const { notifyParceiro } = await import('./parceiros/notifyParceiroService.js');
+        await notifyParceiro(consultor.tenantId, {
+          userIds,
+          type: NotificationType.PARCEIRO_REGISTRO_DECIDIDO,
+          title: ndaStatus === 'ASSINADO' ? 'NDA assinado' : 'NDA recusado/expirado',
+          message:
+            ndaStatus === 'ASSINADO'
+              ? `O consultor ${consultor.nome} assinou o NDA — portal liberado.`
+              : `O NDA do consultor ${consultor.nome} foi recusado ou expirou — portal permanece bloqueado.`,
+          link: `/app/parceiros`,
+          metadata: { consultorId: consultor.id, ndaStatus },
+        }).catch((err) => logger.error('Falha ao notificar NDA', err));
+      }
     }
 
     return { handled: true, signatureStatus: nextStatus };

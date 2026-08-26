@@ -16,6 +16,8 @@ export const CAPABILITY_DEFAULTS: Record<BaseRole, Capabilities> = {
     viewReports: true,
     accessAtestados: true,
     manageAtestados: true,
+    accessParceiros: true,
+    manageParceiros: true,
   },
   GESTOR: {
     exportData: true,
@@ -28,6 +30,8 @@ export const CAPABILITY_DEFAULTS: Record<BaseRole, Capabilities> = {
     viewReports: true,
     accessAtestados: true,
     manageAtestados: true,
+    accessParceiros: true,
+    manageParceiros: true,
   },
   USER: {
     exportData: true,
@@ -40,6 +44,8 @@ export const CAPABILITY_DEFAULTS: Record<BaseRole, Capabilities> = {
     viewReports: true,
     accessAtestados: false,
     manageAtestados: false,
+    accessParceiros: false,
+    manageParceiros: false,
   },
   VIEWER: {
     exportData: false,
@@ -52,6 +58,8 @@ export const CAPABILITY_DEFAULTS: Record<BaseRole, Capabilities> = {
     viewReports: true,
     accessAtestados: false,
     manageAtestados: false,
+    accessParceiros: false,
+    manageParceiros: false,
   },
 };
 

@@ -25,6 +25,13 @@ export function RequireAuth({ children, requiredRoles }: RequireAuthProps) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
+  // CONSULTOR (parceiro externo) vive EXCLUSIVAMENTE no Portal do Parceiro —
+  // qualquer rota fora de /portal redireciona p/ lá (o backend também bloqueia:
+  // gate fail-closed no authenticate). Evita loop: /portal nunca redireciona.
+  if (user.role === 'CONSULTOR' && !location.pathname.startsWith('/portal')) {
+    return <Navigate to="/portal" replace />;
+  }
+
   // Gating por papel (spec papeis-comerciais): quem não tem o papel exigido é
   // redirecionado ao dashboard. A API também bloqueia (defesa em profundidade).
   if (

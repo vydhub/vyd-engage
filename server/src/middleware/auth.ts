@@ -14,6 +14,52 @@ declare global {
   }
 }
 
+// ── Gate do Portal do Parceiro (papel CONSULTOR) ─────────────────────────────
+// FAIL-CLOSED (spec gestao-parceiros-comerciais, req 2): o consultor externo só
+// alcança o Portal do Parceiro. Este é o ÚNICO choke point de todas as rotas
+// autenticadas (não há authenticate global no v1Router — cada router o aplica),
+// então o bloqueio aqui cobre 100% do CRM interno. A allowlist considera os DOIS
+// prefixos de montagem (/api/v1 canônico e /api alias).
+// Prefixos que o consultor pode alcançar por completo (todas as sub-rotas).
+const CONSULTOR_ALLOWED_PREFIXES = [
+  '/api/v1/portal-parceiro',
+  '/api/portal-parceiro',
+  '/api/v1/notifications', // in-app do portal (escopadas por userId)
+  '/api/notifications',
+];
+
+// Sub-rotas de /auth liberadas ao consultor — allowlist EXPLÍCITA (fail-closed).
+// NÃO inclui /auth/tenant (GET expõe settings internos; PUT deixaria o consultor
+// renomear o tenant e redirecionar webhooks internos — lacuna de segurança).
+const CONSULTOR_ALLOWED_AUTH_SUBPATHS = [
+  '/me',
+  '/logout',
+  '/logout-all',
+  '/profile',
+  '/change-password',
+  '/email/verify-request',
+  '/email/verify',
+  '/2fa/setup',
+  '/2fa/verify',
+  '/2fa/disable',
+  '/2fa/status',
+];
+
+function matchesPrefix(url: string, p: string): boolean {
+  return url === p || url.startsWith(`${p}/`) || url.startsWith(`${p}?`);
+}
+
+export function isConsultorAllowed(url: string): boolean {
+  if (CONSULTOR_ALLOWED_PREFIXES.some((p) => matchesPrefix(url, p))) return true;
+  for (const authBase of ['/api/v1/auth', '/api/auth']) {
+    if (!matchesPrefix(url, authBase)) continue;
+    // Extrai a sub-rota após o prefixo de auth e confere na allowlist (ignora query).
+    const sub = url.slice(authBase.length).split('?')[0].replace(/\/$/, '');
+    if (CONSULTOR_ALLOWED_AUTH_SUBPATHS.includes(sub)) return true;
+  }
+  return false;
+}
+
 export async function authenticate(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     // Read token from httpOnly cookie (primary) or Authorization header (fallback)
@@ -75,6 +121,11 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
       role: user.role,
       isPlatformAdmin: user.isPlatformAdmin,
     };
+
+    // Papel CONSULTOR: restrito ao Portal do Parceiro (fail-closed).
+    if (user.role === 'CONSULTOR' && !isConsultorAllowed(req.originalUrl)) {
+      throw createError('Acesso restrito ao Portal do Parceiro', 403, 'PORTAL_ONLY');
+    }
 
     next();
   } catch (error) {

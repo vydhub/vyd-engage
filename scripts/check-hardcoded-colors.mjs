@@ -118,6 +118,20 @@ const STRICT_SCOPE = new Set([
   'src/components/atestados/ProfissionaisTab.tsx',
   'src/components/atestados/TerceirosTab.tsx',
   'src/components/atestados/ConfigTab.tsx',
+  // Gestão de Parceiros Comerciais — módulo novo, 100% tokenizado.
+  'src/pages/Parceiros.tsx',
+  'src/pages/PortalParceiro.tsx',
+  'src/components/parceiros/PainelTab.tsx',
+  'src/components/parceiros/ConsultoresTab.tsx',
+  'src/components/parceiros/RegistrosTab.tsx',
+  'src/components/parceiros/ConflitosTab.tsx',
+  'src/components/parceiros/ComissoesTab.tsx',
+  'src/components/parceiros/RelacionamentoTab.tsx',
+  'src/components/parceiros/DocsConfigTab.tsx',
+  'src/components/parceiros/PortalOportunidades.tsx',
+  'src/components/parceiros/PortalComissoes.tsx',
+  'src/components/parceiros/PortalMetasReunioes.tsx',
+  'src/components/parceiros/PortalDocumentos.tsx',
 ]);
 const STRICT_FAMILIES =
   /\b(?:bg|text|border|ring|from|to|via|divide|placeholder|fill|stroke|decoration|outline|accent)-(?:gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b|\b(?:bg|text|border|ring|fill|stroke)-(?:white|black)\b/;

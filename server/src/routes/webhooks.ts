@@ -376,7 +376,14 @@ router.post('/whatsapp', async (req: Request, res: Response) => {
     // payload filtrado (sem os changes já tratados pelo copiloto) ao fluxo genérico.
     // Assíncrono — sempre retorna 200 rápido. O roteamento ao copiloto só ocorre
     // quando a assinatura foi verificada (LACUNA #3); senão o payload passa inteiro.
+    // Parceiros (PRM): mensagens de CONSULTORES cadastrados viram registro/update
+    // de oportunidade (mesmo contrato filter-forward; escrita só com assinatura
+    // verificada). O que o hook não tratar segue ao fluxo genérico — nada se perde.
     routeCopilotAndFilter(req.body, signatureVerified)
+      .then(async (filtered) => {
+        const { routeParceiroAndFilter } = await import('../services/parceiros/whatsappHook.js');
+        return routeParceiroAndFilter(filtered, signatureVerified);
+      })
       .then((filtered) => whatsappMessagingService.processWebhook(filtered))
       .catch((error) => {
         logger.error('Error processing WhatsApp webhook async', error);

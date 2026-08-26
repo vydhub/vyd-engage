@@ -97,6 +97,8 @@ const Suggestions = lazyNamed(() => import('../pages/Suggestions'), 'Suggestions
 const DealSettings = lazyNamed(() => import('../pages/DealSettings'), 'DealSettings');
 const Approvals = lazyNamed(() => import('../pages/Approvals'), 'Approvals');
 const Atestados = lazyNamed(() => import('../pages/Atestados'), 'Atestados');
+const Parceiros = lazyNamed(() => import('../pages/Parceiros'), 'Parceiros');
+const PortalParceiro = lazyNamed(() => import('../pages/PortalParceiro'), 'PortalParceiro');
 const Trash = lazyNamed(() => import('../pages/Trash'), 'Trash');
 
 export const router = createBrowserRouter([
@@ -111,6 +113,12 @@ export const router = createBrowserRouter([
   {
     path: '/onboarding',
     element: Onboarding,
+  },
+  {
+    // Portal do Parceiro — consultor externo (papel CONSULTOR). Shell próprio,
+    // fora do AppShell interno; RequireAuth redireciona internos p/ /app.
+    path: '/portal',
+    element: <RequireAuth requiredRoles={['CONSULTOR']}>{PortalParceiro}</RequireAuth>,
   },
   {
     path: '/capture/:formId',
@@ -309,6 +317,10 @@ export const router = createBrowserRouter([
       {
         path: 'atestados',
         element: <RequireCapability cap="accessAtestados">{Atestados}</RequireCapability>,
+      },
+      {
+        path: 'parceiros',
+        element: <RequireCapability cap="accessParceiros">{Parceiros}</RequireCapability>,
       },
       {
         path: 'deep-research/painel',

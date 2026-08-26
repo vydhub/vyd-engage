@@ -77,7 +77,7 @@ function criarChecagemDeOrigem(corsOrigins: string[] | false) {
  */
 export async function autenticarHandshake(
   token: string | undefined
-): Promise<{ userId: string; tenantId: string } | null> {
+): Promise<{ userId: string; tenantId: string; role: string } | null> {
   const recusar = (motivo: string, extra: Record<string, unknown> = {}) => {
     logger.warn('Handshake recusado', { motivo, ...extra });
     return null;
@@ -93,7 +93,11 @@ export async function autenticarHandshake(
 
     const user = await prisma.user.findUnique({
       where: { id: payload.userId },
-      select: { id: true, status: true, tenantId: true, tokensValidAfter: true },
+      // `role` entra aqui (e não vem do token) pela mesma razão do tenantId: é
+      // o que decide se o socket pode entrar na sala do tenant — um CONSULTOR
+      // externo não pode. Ler do banco impede que um token antigo, emitido antes
+      // de uma troca de papel, sirva de passe.
+      select: { id: true, status: true, tenantId: true, tokensValidAfter: true, role: true },
     });
 
     if (!user) return recusar('usuario_inexistente', { userId: payload.userId });
@@ -117,7 +121,7 @@ export async function autenticarHandshake(
 
     // tenantId vem do BANCO, não do token: se o usuário mudou de tenant, o
     // token antigo não pode seguir valendo como passe para a sala antiga.
-    return { userId: user.id, tenantId: user.tenantId };
+    return { userId: user.id, tenantId: user.tenantId, role: user.role as string };
   } catch (erro) {
     // Assinatura inválida, token expirado ou banco fora: fail-closed.
     return recusar(erro instanceof Error ? erro.message : 'erro_desconhecido');
@@ -157,6 +161,9 @@ export function initSocketIO(httpServer: HttpServer, corsOrigins: string[] | fal
 
       (socket as any).userId = identidade.userId;
       (socket as any).tenantId = identidade.tenantId;
+      // Vem do banco (ver autenticarHandshake): decide a entrada na sala do
+      // tenant — CONSULTOR externo fica de fora.
+      (socket as any).role = identidade.role;
       next();
     })();
   });
@@ -164,12 +171,18 @@ export function initSocketIO(httpServer: HttpServer, corsOrigins: string[] | fal
   io.on('connection', (socket: Socket) => {
     const userId = (socket as any).userId;
     const tenantId = (socket as any).tenantId;
+    const role = (socket as any).role;
 
-    // Join user-specific and tenant-specific rooms
+    // Join user-specific room (sempre — notificações do portal chegam aqui).
     socket.join(`user:${userId}`);
-    socket.join(`tenant:${tenantId}`);
+    // FAIL-CLOSED (parceiros, req 2): o CONSULTOR externo NUNCA entra na tenant
+    // room — ela transmite eventos do CRM interno em tempo real (lead/deal/task).
+    // O gate HTTP não cobriria isso; sem esta guarda o WebSocket vazaria o CRM.
+    if (role !== 'CONSULTOR') {
+      socket.join(`tenant:${tenantId}`);
+    }
 
-    logger.info('WebSocket connected', { userId, tenantId, socketId: socket.id });
+    logger.info('WebSocket connected', { userId, tenantId, role, socketId: socket.id });
 
     socket.on('disconnect', () => {
       logger.info('WebSocket disconnected', { userId, socketId: socket.id });
