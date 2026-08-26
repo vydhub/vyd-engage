@@ -194,12 +194,12 @@ describe('resolução de conflito destrava origem E alvo (reqs 18, 38)', () => {
   const TENANT_C = 'tenant-conflito';
 
   /** Monta o conflito ABERTO que resolveConflito busca no início. */
-  function mockConflito(decisaoAlvo: string | null = 'alvo-1') {
+  function mockConflito(alvoRegistroId: string | null = 'alvo-1') {
     prismaMock.conflitoCandidato.findFirst.mockResolvedValue({
       id: 'k1',
       tenantId: TENANT_C,
       registroId: 'origem-1',
-      alvoRegistroId: decisaoAlvo,
+      alvoRegistroId,
       matchChave: 'CNPJ 12345678000100',
       status: 'ABERTO',
       registro: { id: 'origem-1', status: 'EM_ANALISE', consultor: { nome: 'Ana', userId: 'u9' } },
@@ -208,6 +208,14 @@ describe('resolução de conflito destrava origem E alvo (reqs 18, 38)', () => {
     prismaMock.conflitoCandidato.findMany.mockResolvedValue([] as never);
     prismaMock.registroAuditoria.create.mockResolvedValue({} as never);
     prismaMock.registroOportunidade.update.mockResolvedValue({} as never);
+  }
+
+  /** Ids dos registros devolvidos à fila (status → SUBMETIDO) nesta chamada. */
+  function idsDestravados(): string[] {
+    const chamadas = prismaMock.registroOportunidade.update.mock.calls as unknown as Array<
+      [{ where: { id: string }; data?: { status?: string } }]
+    >;
+    return chamadas.filter((c) => c[0].data?.status === 'SUBMETIDO').map((c) => c[0].where.id);
   }
 
   it('MANTER sem conflitos abertos: origem E alvo voltam para SUBMETIDO', async () => {
@@ -224,12 +232,9 @@ describe('resolução de conflito destrava origem E alvo (reqs 18, 38)', () => {
       rationale: 'frentes independentes',
     });
 
-    const destravados = prismaMock.registroOportunidade.update.mock.calls
-      .filter((c) => (c[0] as { data?: { status?: string } }).data?.status === 'SUBMETIDO')
-      .map((c) => (c[0] as { where: { id: string } }).where.id);
     // O alvo é o que regredia: sem ele, sumia da fila de aprovação e da de conflitos.
-    expect(destravados).toContain('origem-1');
-    expect(destravados).toContain('alvo-1');
+    expect(idsDestravados()).toContain('origem-1');
+    expect(idsDestravados()).toContain('alvo-1');
   });
 
   it('ainda restando conflito aberto: ninguém é destravado', async () => {
@@ -242,10 +247,7 @@ describe('resolução de conflito destrava origem E alvo (reqs 18, 38)', () => {
       rationale: 'seguem separados',
     });
 
-    const destravados = prismaMock.registroOportunidade.update.mock.calls.filter(
-      (c) => (c[0] as { data?: { status?: string } }).data?.status === 'SUBMETIDO'
-    );
-    expect(destravados).toHaveLength(0);
+    expect(idsDestravados()).toHaveLength(0);
   });
 
   it('não destrava registro fora de EM_ANALISE (decisão posterior do gestor)', async () => {
@@ -259,9 +261,6 @@ describe('resolução de conflito destrava origem E alvo (reqs 18, 38)', () => {
       rationale: 'já aprovado antes',
     });
 
-    const destravados = prismaMock.registroOportunidade.update.mock.calls.filter(
-      (c) => (c[0] as { data?: { status?: string } }).data?.status === 'SUBMETIDO'
-    );
-    expect(destravados).toHaveLength(0);
+    expect(idsDestravados()).toHaveLength(0);
   });
 });
