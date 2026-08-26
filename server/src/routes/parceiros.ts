@@ -593,6 +593,8 @@ router.put('/config', manage, async (req, res, next) => {
       scoreLimiares: z.object({ saudavel: z.number(), atencao: z.number(), esfriando: z.number() }).optional(),
       decaimentoPontosPorDia: z.number().min(0).max(10).optional(),
       decaimentoMaxPontos: z.number().int().min(0).max(100).optional(),
+      // Req 26: a queda que dispara o alerta de tendência é configurável.
+      quedaLimiarPontos: z.number().int().min(1).max(100).optional(),
       conflitoInternoUserId: z.string().uuid().nullable().optional(),
     }).parse(req.body);
     res.json({ status: 200, data: await parceiroConfigService.update(tenant(req), data) });
@@ -603,21 +605,47 @@ router.put('/config', manage, async (req, res, next) => {
 router.post('/relatorio', async (req, res, next) => {
   try {
     const tenantId = tenant(req);
-    const { periodo } = z.object({ periodo: z.string().optional() }).parse(req.body ?? {});
+    const diaIso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use o formato AAAA-MM-DD');
+    const { periodo, inicio, fim } = z
+      .object({ periodo: z.string().optional(), inicio: diaIso.optional(), fim: diaIso.optional() })
+      .parse(req.body ?? {});
     const [tenantRow, consultores] = await Promise.all([
       prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }),
       consultorService.list(tenantId),
     ]);
     const agora = new Date();
+
+    // Janela do relatório (req 39: "visão do programa por período"). `fim` é
+    // inclusivo para quem chama e vira o instante seguinte aqui dentro —
+    // intervalo semiaberto [inicio, fim), mesma convenção de metaService.progress.
+    // Sem datas explícitas o padrão é o mês corrente, que é o rótulo impresso.
+    const janelaInicio = inicio
+      ? new Date(`${inicio}T00:00:00`)
+      : new Date(agora.getFullYear(), agora.getMonth(), 1);
+    const janelaFim = fim
+      ? new Date(new Date(`${fim}T00:00:00`).getTime() + 24 * 60 * 60 * 1000)
+      : new Date(agora.getFullYear(), agora.getMonth() + 1, 1);
+    if (janelaFim <= janelaInicio) {
+      return next(createError('O fim do período deve ser posterior ao início.', 400, 'PERIODO_INVALIDO'));
+    }
+    const naJanela = { gte: janelaInicio, lt: janelaFim };
+    // Metas são mensais: a referência é o mês em que a janela termina.
+    const refMeta = new Date(janelaFim.getTime() - 1);
+    const rotuloPeriodo =
+      periodo ||
+      (inicio || fim
+        ? `${janelaInicio.toLocaleDateString('pt-BR')} a ${new Date(janelaFim.getTime() - 1).toLocaleDateString('pt-BR')}`
+        : agora.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }));
     const linhas = await Promise.all(
       consultores.map(async (c) => {
         const [ativos, pipeline, ganho] = await Promise.all([
           prisma.registroOportunidade.count({ where: { tenantId, consultorId: c.id, deletedAt: null, status: { in: ['SUBMETIDO', 'EM_ANALISE', 'APROVADO'] } } }),
           prisma.registroOportunidade.aggregate({ where: { tenantId, consultorId: c.id, deletedAt: null, status: 'APROVADO' }, _sum: { valorEstimado: true } }),
-          prisma.registroOportunidade.aggregate({ where: { tenantId, consultorId: c.id, deletedAt: null, status: 'GANHO' }, _sum: { valorContrato: true } }),
+          prisma.registroOportunidade.aggregate({ where: { tenantId, consultorId: c.id, deletedAt: null, status: 'GANHO', ganhoEm: naJanela }, _sum: { valorContrato: true } }),
         ]);
-        const mes = agora.getMonth() + 1;
-        const progress = await metaService.progress(tenantId, c.id, mes, agora.getFullYear()).catch(() => null);
+        const progress = await metaService
+          .progress(tenantId, c.id, refMeta.getMonth() + 1, refMeta.getFullYear())
+          .catch(() => null);
         return {
           nome: c.nome,
           faixa: c.scoreFaixa,
@@ -636,15 +664,19 @@ router.post('/relatorio', async (req, res, next) => {
       await Promise.all([
         prisma.registroOportunidade.count({ where: { tenantId, deletedAt: null, status: 'SUBMETIDO' } }),
         prisma.conflitoCandidato.count({ where: { tenantId, status: 'ABERTO' } }),
-        prisma.conflitoCandidato.count({ where: { tenantId, status: 'RESOLVIDO' } }),
-        prisma.comissaoParcela.aggregate({ where: { tenantId }, _sum: { valor: true } }),
+        prisma.conflitoCandidato.count({ where: { tenantId, status: 'RESOLVIDO', resolvidoEm: naJanela } }),
+        // "Liberada" = a parcela nasce quando o cliente paga (recebimento), então
+        // a janela recorta por createdAt — não pelo pagamento ao consultor.
+        prisma.comissaoParcela.aggregate({ where: { tenantId, createdAt: naJanela }, _sum: { valor: true } }),
         prisma.registroOportunidade.aggregate({ where: { tenantId, deletedAt: null, status: 'APROVADO' }, _sum: { valorEstimado: true } }),
-        prisma.registroOportunidade.aggregate({ where: { tenantId, deletedAt: null, status: 'GANHO' }, _sum: { valorContrato: true } }),
+        prisma.registroOportunidade.aggregate({ where: { tenantId, deletedAt: null, status: 'GANHO', ganhoEm: naJanela }, _sum: { valorContrato: true } }),
         prisma.consultor.count({ where: { tenantId, deletedAt: null, status: 'ATIVO', scoreFaixa: { in: ['ESFRIANDO', 'FRIO'] } } }),
         prisma.registroOportunidade.count({ where: { tenantId, deletedAt: null, status: 'EXPIRADO' } }),
         prisma.registroOportunidade.count({ where: { tenantId, deletedAt: null, status: { in: ['APROVADO', 'GANHO', 'PERDIDO', 'EXPIRADO'] } } }),
+        // Tempo médio das decisões TOMADAS na janela. EXPIRADO não grava
+        // decididoEm, então já fica naturalmente fora deste cálculo.
         prisma.registroOportunidade.findMany({
-          where: { tenantId, deletedAt: null, decididoEm: { not: null }, status: { in: ['APROVADO', 'REJEITADO', 'GANHO', 'PERDIDO', 'EXPIRADO'] } },
+          where: { tenantId, deletedAt: null, decididoEm: naJanela, status: { in: ['APROVADO', 'REJEITADO', 'GANHO', 'PERDIDO', 'EXPIRADO'] } },
           select: { createdAt: true, decididoEm: true },
         }),
       ]);
@@ -661,7 +693,7 @@ router.post('/relatorio', async (req, res, next) => {
     const { renderParceiroReportPdf } = await import('../services/pdfService.js');
     const pdf = await renderParceiroReportPdf({
       tenantName: tenantRow?.name ?? '',
-      periodo: periodo || agora.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }),
+      periodo: rotuloPeriodo,
       dataGeracao: agora.toLocaleDateString('pt-BR'),
       indicadores: {
         consultoresAtivos: consultores.filter((c) => c.status === 'ATIVO').length,

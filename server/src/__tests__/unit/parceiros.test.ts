@@ -189,3 +189,79 @@ describe('comissão por recebimento (reqs 30-31)', () => {
     ).rejects.toMatchObject({ code: 'NOT_WON' });
   });
 });
+
+describe('resolução de conflito destrava origem E alvo (reqs 18, 38)', () => {
+  const TENANT_C = 'tenant-conflito';
+
+  /** Monta o conflito ABERTO que resolveConflito busca no início. */
+  function mockConflito(decisaoAlvo: string | null = 'alvo-1') {
+    prismaMock.conflitoCandidato.findFirst.mockResolvedValue({
+      id: 'k1',
+      tenantId: TENANT_C,
+      registroId: 'origem-1',
+      alvoRegistroId: decisaoAlvo,
+      matchChave: 'CNPJ 12345678000100',
+      status: 'ABERTO',
+      registro: { id: 'origem-1', status: 'EM_ANALISE', consultor: { nome: 'Ana', userId: 'u9' } },
+    } as never);
+    prismaMock.conflitoCandidato.update.mockResolvedValue({} as never);
+    prismaMock.conflitoCandidato.findMany.mockResolvedValue([] as never);
+    prismaMock.registroAuditoria.create.mockResolvedValue({} as never);
+    prismaMock.registroOportunidade.update.mockResolvedValue({} as never);
+  }
+
+  it('MANTER sem conflitos abertos: origem E alvo voltam para SUBMETIDO', async () => {
+    mockConflito();
+    // Nenhum conflito aberto sobrou para nenhum dos dois.
+    prismaMock.conflitoCandidato.count.mockResolvedValue(0 as never);
+    // Ambos presos em EM_ANALISE pela detecção.
+    prismaMock.registroOportunidade.findFirst.mockImplementation(
+      (async (args: { where: { id: string } }) => ({ id: args.where.id })) as never
+    );
+
+    await registroService.resolveConflito(TENANT_C, 'k1', 'gestor-1', {
+      decisao: 'MANTER' as never,
+      rationale: 'frentes independentes',
+    });
+
+    const destravados = prismaMock.registroOportunidade.update.mock.calls
+      .filter((c) => (c[0] as { data?: { status?: string } }).data?.status === 'SUBMETIDO')
+      .map((c) => (c[0] as { where: { id: string } }).where.id);
+    // O alvo é o que regredia: sem ele, sumia da fila de aprovação e da de conflitos.
+    expect(destravados).toContain('origem-1');
+    expect(destravados).toContain('alvo-1');
+  });
+
+  it('ainda restando conflito aberto: ninguém é destravado', async () => {
+    mockConflito();
+    prismaMock.conflitoCandidato.count.mockResolvedValue(1 as never);
+    prismaMock.registroOportunidade.findFirst.mockResolvedValue({ id: 'origem-1' } as never);
+
+    await registroService.resolveConflito(TENANT_C, 'k1', 'gestor-1', {
+      decisao: 'INDEPENDENTE' as never,
+      rationale: 'seguem separados',
+    });
+
+    const destravados = prismaMock.registroOportunidade.update.mock.calls.filter(
+      (c) => (c[0] as { data?: { status?: string } }).data?.status === 'SUBMETIDO'
+    );
+    expect(destravados).toHaveLength(0);
+  });
+
+  it('não destrava registro fora de EM_ANALISE (decisão posterior do gestor)', async () => {
+    mockConflito();
+    prismaMock.conflitoCandidato.count.mockResolvedValue(0 as never);
+    // findFirst filtra por status EM_ANALISE → nada preso a destravar.
+    prismaMock.registroOportunidade.findFirst.mockResolvedValue(null as never);
+
+    await registroService.resolveConflito(TENANT_C, 'k1', 'gestor-1', {
+      decisao: 'MANTER' as never,
+      rationale: 'já aprovado antes',
+    });
+
+    const destravados = prismaMock.registroOportunidade.update.mock.calls.filter(
+      (c) => (c[0] as { data?: { status?: string } }).data?.status === 'SUBMETIDO'
+    );
+    expect(destravados).toHaveLength(0);
+  });
+});

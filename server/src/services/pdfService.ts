@@ -719,33 +719,50 @@ export function renderParceiroReportPdf(input: ParceiroReportPdfInput): Promise<
       doc.moveDown(0.5);
 
       const ind = input.indicadores;
-      const indicadorLinhas: Array<[string, string]> = [
-        ['Consultores ativos', String(ind.consultoresAtivos)],
-        ['Consultores dormentes', String(ind.consultoresDormentes)],
-        ['Pipeline de parceiros', BRL.format(ind.pipelineParceiros)],
+      // Dois grupos SEPARADOS de propósito: misturá-los faria números acumulados
+      // parecerem do período impresso no cabeçalho. "No período" é filtrado pela
+      // janela; "Posição atual" é uma foto de agora, independente da janela.
+      const doPeriodo: Array<[string, string]> = [
         ['Ganho no período', BRL.format(ind.ganhoPeriodo)],
-        ['Conflitos abertos', String(ind.conflitosAbertos)],
+        ['Comissões liberadas', BRL.format(ind.comissoesLiberadas)],
         ...(ind.conflitosResolvidos != null
           ? ([['Conflitos resolvidos', String(ind.conflitosResolvidos)]] as Array<[string, string]>)
           : []),
-        ['Registros aguardando aprovação', String(ind.registrosPendentes)],
-        ['Comissões liberadas', BRL.format(ind.comissoesLiberadas)],
         ...(ind.tempoMedioAprovacaoDias != null
           ? ([
               ['Tempo médio de aprovação', `${ind.tempoMedioAprovacaoDias} dias`],
             ] as Array<[string, string]>)
           : []),
+      ];
+      const posicaoAtual: Array<[string, string]> = [
+        ['Consultores ativos', String(ind.consultoresAtivos)],
+        ['Consultores dormentes', String(ind.consultoresDormentes)],
+        ['Pipeline de parceiros', BRL.format(ind.pipelineParceiros)],
+        ['Conflitos abertos', String(ind.conflitosAbertos)],
+        ['Registros aguardando aprovação', String(ind.registrosPendentes)],
+        // Acumulada: EXPIRADO não carimba data de decisão, então não há como
+        // recortá-la por janela sem inventar o dado.
         ...(ind.taxaExpiracao != null
-          ? ([['Taxa de expiração', `${ind.taxaExpiracao}%`]] as Array<[string, string]>)
+          ? ([['Taxa de expiração (acumulada)', `${ind.taxaExpiracao}%`]] as Array<[string, string]>)
           : []),
       ];
-      for (const [rotulo, valor] of indicadorLinhas) {
-        atPageBreak(doc, 60);
-        doc.fillColor(AT_MUTED).fontSize(10).font('Helvetica').text(`${rotulo}: `, { continued: true });
-        doc.fillColor(AT_INK).font('Helvetica-Bold').text(valor);
-        doc.moveDown(0.2);
-      }
-      doc.moveDown(0.8);
+
+      const escreveGrupo = (titulo: string, linhas: Array<[string, string]>) => {
+        atPageBreak(doc, 80);
+        doc.fillColor(AT_INK).fontSize(10).font('Helvetica-Bold').text(titulo);
+        doc.moveDown(0.3);
+        for (const [rotulo, valor] of linhas) {
+          atPageBreak(doc, 60);
+          doc.fillColor(AT_MUTED).fontSize(10).font('Helvetica').text(`${rotulo}: `, { continued: true });
+          doc.fillColor(AT_INK).font('Helvetica-Bold').text(valor);
+          doc.moveDown(0.2);
+        }
+        doc.moveDown(0.6);
+      };
+
+      escreveGrupo(`No período (${input.periodo})`, doPeriodo);
+      escreveGrupo('Posição atual', posicaoAtual);
+      doc.moveDown(0.2);
 
       // ── Consultores ───────────────────────────────────────────────────────
       atPageBreak(doc, 100);
@@ -764,7 +781,7 @@ export function renderParceiroReportPdf(input: ParceiroReportPdfInput): Promise<
         if (c.diasSemAtividade != null) meta.push(`${c.diasSemAtividade} dias sem atividade`);
         meta.push(`${c.registrosAtivos} registros ativos`);
         meta.push(`pipeline ${BRL.format(c.pipeline)}`);
-        meta.push(`ganho ${BRL.format(c.ganho)}`);
+        meta.push(`ganho no período ${BRL.format(c.ganho)}`);
         if (c.metaPct != null) meta.push(`meta ${c.metaPct.toFixed(0)}%`);
         doc.moveDown(0.1).fillColor(AT_MUTED).fontSize(9).font('Helvetica').text(meta.join('  ·  '));
         doc.moveDown(0.5);

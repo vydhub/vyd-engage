@@ -19,6 +19,7 @@ export interface ParceiroConfigInput {
   scoreLimiares?: { saudavel: number; atencao: number; esfriando: number };
   decaimentoPontosPorDia?: number;
   decaimentoMaxPontos?: number;
+  quedaLimiarPontos?: number;
   conflitoInternoUserId?: string | null;
 }
 
@@ -108,6 +109,7 @@ export const parceiroConfigService = {
         ? { decaimentoPontosPorDia: data.decaimentoPontosPorDia }
         : {}),
       ...(data.decaimentoMaxPontos !== undefined ? { decaimentoMaxPontos: data.decaimentoMaxPontos } : {}),
+      ...(data.quedaLimiarPontos !== undefined ? { quedaLimiarPontos: data.quedaLimiarPontos } : {}),
       ...(data.conflitoInternoUserId !== undefined
         ? { conflitoInternoUserId: data.conflitoInternoUserId }
         : {}),

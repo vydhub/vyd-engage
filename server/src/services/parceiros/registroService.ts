@@ -89,6 +89,44 @@ async function updateStatusWithAudit(
   });
 }
 
+/**
+ * Devolve à fila de aprovação (SUBMETIDO) os registros que a detecção de conflito
+ * prendeu em EM_ANALISE e que não têm mais nenhum conflito ABERTO.
+ *
+ * Avalia origem E alvo: `create()` move os dois para EM_ANALISE, mas o
+ * ConflitoCandidato guarda o alvo em `alvoRegistroId`, não em `registroId` —
+ * então olhar só por `registroId` deixaria o alvo preso para sempre, fora da fila
+ * de aprovações e fora da fila de conflitos ao mesmo tempo.
+ */
+async function destravarSemConflitoAberto(
+  tenantId: string,
+  registroIds: (string | null | undefined)[],
+  userId: string | null
+): Promise<void> {
+  const ids = [...new Set(registroIds.filter((id): id is string => !!id))];
+  for (const registroId of ids) {
+    const abertos = await prisma.conflitoCandidato.count({
+      where: { tenantId, status: 'ABERTO', OR: [{ registroId }, { alvoRegistroId: registroId }] },
+    });
+    if (abertos > 0) continue;
+    // Só destrava o que a detecção prendeu. Qualquer outro status é decisão
+    // posterior do gestor (aprovado, rejeitado, ganho…) e não deve ser revertido.
+    const preso = await prisma.registroOportunidade.findFirst({
+      where: { id: registroId, tenantId, deletedAt: null, status: 'EM_ANALISE' },
+      select: { id: true },
+    });
+    if (!preso) continue;
+    await prisma.registroOportunidade.update({ where: { id: registroId }, data: { status: 'SUBMETIDO' } });
+    await audit(
+      tenantId,
+      registroId,
+      'CONFLITO_LIBERADO',
+      'Sem conflitos abertos — volta para a fila de aprovação',
+      userId
+    );
+  }
+}
+
 const detailInclude = {
   consultor: { select: { id: true, nome: true, email: true, status: true } },
   updates: { orderBy: { createdAt: 'desc' as const } },
@@ -1092,19 +1130,14 @@ export const registroService = {
     if (data.decisao === 'REJEITAR') {
       // Rejeita em favor da outra frente — mensagem NEUTRA ao consultor (req 5).
       await this.reject(tenantId, conflito.registroId, userId, 'Oportunidade já em desenvolvimento por outra frente da empresa');
+      // A origem foi rejeitada, mas o alvo também ficou preso em EM_ANALISE na
+      // detecção — se não sobrou conflito aberto, ele volta para a fila.
+      await destravarSemConflitoAberto(tenantId, [conflito.alvoRegistroId], userId);
       return this.listConflitos(tenantId, 'ABERTO');
     }
 
-    // MANTER/INDEPENDENTE: se não restam conflitos abertos, volta a SUBMETIDO.
-    const restantes = await prisma.conflitoCandidato.count({
-      where: { tenantId, registroId: conflito.registroId, status: 'ABERTO' },
-    });
-    if (restantes === 0 && conflito.registro.status === 'EM_ANALISE') {
-      await prisma.registroOportunidade.update({
-        where: { id: conflito.registroId },
-        data: { status: 'SUBMETIDO' },
-      });
-    }
+    // MANTER/INDEPENDENTE: destrava origem e alvo que não têm mais conflito aberto.
+    await destravarSemConflitoAberto(tenantId, [conflito.registroId, conflito.alvoRegistroId], userId);
     return this.listConflitos(tenantId, 'ABERTO');
   },
 

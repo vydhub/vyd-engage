@@ -90,6 +90,7 @@ interface ConfigForm {
   limiarEsfriando: string;
   decaimentoPontosPorDia: string;
   decaimentoMaxPontos: string;
+  quedaLimiarPontos: string;
   conflitoInternoUserId: string;
 }
 
@@ -109,6 +110,7 @@ function configToForm(c: ParceiroConfig): ConfigForm {
     limiarEsfriando: String(Number(c.scoreLimiares.esfriando)),
     decaimentoPontosPorDia: String(Number(c.decaimentoPontosPorDia)),
     decaimentoMaxPontos: String(Number(c.decaimentoMaxPontos)),
+    quedaLimiarPontos: String(Number(c.quedaLimiarPontos)),
     conflitoInternoUserId: c.conflitoInternoUserId ?? ADMINS_PADRAO,
   };
 }
@@ -253,6 +255,7 @@ export function DocsConfigTab() {
       ['Limiar — esfriando', Number(form.limiarEsfriando)],
       ['Decaimento — pontos por dia', Number(form.decaimentoPontosPorDia)],
       ['Decaimento — máximo de pontos', Number(form.decaimentoMaxPontos)],
+      ['Queda que dispara alerta (pontos)', Number(form.quedaLimiarPontos)],
     ];
     const invalido = numericos.find(([, n]) => !Number.isFinite(n));
     if (invalido) {
@@ -286,6 +289,7 @@ export function DocsConfigTab() {
         },
         decaimentoPontosPorDia: Number(form.decaimentoPontosPorDia),
         decaimentoMaxPontos: Number(form.decaimentoMaxPontos),
+        quedaLimiarPontos: Number(form.quedaLimiarPontos),
         conflitoInternoUserId:
           form.conflitoInternoUserId === ADMINS_PADRAO ? null : form.conflitoInternoUserId,
       });
@@ -578,6 +582,14 @@ export function DocsConfigTab() {
                     value={form.decaimentoMaxPontos}
                     onChange={(v) => setCampo('decaimentoMaxPontos', v)}
                     min={0}
+                  />
+                  <CampoNumero
+                    id="cfg-queda-limiar"
+                    label="Queda que dispara alerta"
+                    hint="Alerta de tendência quando o score cai mais que estes pontos entre duas apurações."
+                    value={form.quedaLimiarPontos}
+                    onChange={(v) => setCampo('quedaLimiarPontos', v)}
+                    min={1}
                   />
                 </div>
               </div>

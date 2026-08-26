@@ -228,6 +228,7 @@ export interface ParceiroConfig {
   scoreLimiares: { saudavel: number; atencao: number; esfriando: number };
   decaimentoPontosPorDia: number;
   decaimentoMaxPontos: number;
+  quedaLimiarPontos: number;
   conflitoInternoUserId: string | null;
 }
 
