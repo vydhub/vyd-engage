@@ -31,10 +31,64 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useParceirosPainel, useParceirosActions } from '@/hooks/useParceiros';
 import type { ConsultorPainel, ScoreFaixa } from '@/types/parceiros';
 
 // ── Rótulos e formatadores (pt-BR) ──────────────────────────────────────────
+// Janela do relatório executivo (req 39). O backend recorta por inicio/fim e
+// imprime `periodo` no cabeçalho; aqui só traduzimos a escolha do gestor.
+type PeriodoOpcao = 'MES_ATUAL' | 'MES_ANTERIOR' | 'TRIMESTRE' | 'ANO';
+
+const PERIODO_LABEL: Record<PeriodoOpcao, string> = {
+  MES_ATUAL: 'Mês atual',
+  MES_ANTERIOR: 'Mês anterior',
+  TRIMESTRE: 'Últimos 3 meses',
+  ANO: 'Ano atual',
+};
+
+const diaIso = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+const nomeMes = (d: Date) => d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+
+function janelaDoPeriodo(opcao: PeriodoOpcao): { inicio: string; fim: string; periodo: string } {
+  const hoje = new Date();
+  const ano = hoje.getFullYear();
+  const mes = hoje.getMonth();
+  // Dia 0 do mês seguinte = último dia do mês corrente.
+  const ultimoDia = (a: number, m: number) => new Date(a, m + 1, 0);
+
+  switch (opcao) {
+    case 'MES_ANTERIOR': {
+      const ini = new Date(ano, mes - 1, 1);
+      return { inicio: diaIso(ini), fim: diaIso(ultimoDia(ano, mes - 1)), periodo: nomeMes(ini) };
+    }
+    case 'TRIMESTRE': {
+      const ini = new Date(ano, mes - 2, 1);
+      const fim = ultimoDia(ano, mes);
+      return {
+        inicio: diaIso(ini),
+        fim: diaIso(fim),
+        periodo: `${ini.toLocaleDateString('pt-BR', { month: 'long' })} a ${nomeMes(fim)}`,
+      };
+    }
+    case 'ANO':
+      return { inicio: diaIso(new Date(ano, 0, 1)), fim: diaIso(new Date(ano, 11, 31)), periodo: String(ano) };
+    case 'MES_ATUAL':
+    default: {
+      const ini = new Date(ano, mes, 1);
+      return { inicio: diaIso(ini), fim: diaIso(ultimoDia(ano, mes)), periodo: nomeMes(ini) };
+    }
+  }
+}
+
 const SCORE_FAIXA_LABEL: Record<ScoreFaixa, string> = {
   SAUDAVEL: 'Saudável',
   ATENCAO: 'Atenção',
@@ -96,11 +150,12 @@ export function PainelTab() {
   const actions = useParceirosActions();
 
   const [gerandoRelatorio, setGerandoRelatorio] = useState(false);
+  const [periodoRelatorio, setPeriodoRelatorio] = useState<PeriodoOpcao>('MES_ATUAL');
 
   const handleRelatorio = async () => {
     setGerandoRelatorio(true);
     try {
-      const res = await actions.gerarRelatorio();
+      const res = await actions.gerarRelatorio(janelaDoPeriodo(periodoRelatorio));
       window.open(
         `${import.meta.env.VITE_API_URL || ''}/api/v1/attachments/${res.attachmentId}/download`,
         '_blank'
@@ -149,19 +204,36 @@ export function PainelTab() {
       {/* ── Cabeçalho + relatório executivo ── */}
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-base font-semibold text-foreground">Painel de parceiros</h2>
-        <Button
-          variant="outline"
-          className="gap-1.5"
-          disabled={gerandoRelatorio}
-          onClick={handleRelatorio}
-        >
-          {gerandoRelatorio ? (
-            <Loader2 size={16} className="animate-spin" />
-          ) : (
-            <FileDown size={16} />
-          )}
-          Relatório executivo (PDF)
-        </Button>
+        <div className="flex items-center gap-2">
+          <Select
+            value={periodoRelatorio}
+            onValueChange={(v) => setPeriodoRelatorio(v as PeriodoOpcao)}
+          >
+            <SelectTrigger className="w-[170px]" aria-label="Período do relatório">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(PERIODO_LABEL) as PeriodoOpcao[]).map((op) => (
+                <SelectItem key={op} value={op}>
+                  {PERIODO_LABEL[op]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            className="gap-1.5"
+            disabled={gerandoRelatorio}
+            onClick={handleRelatorio}
+          >
+            {gerandoRelatorio ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <FileDown size={16} />
+            )}
+            Relatório executivo (PDF)
+          </Button>
+        </div>
       </div>
 
       {/* ── Indicadores ── */}

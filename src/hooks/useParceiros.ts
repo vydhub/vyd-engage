@@ -141,6 +141,7 @@ export function useParceirosActions() {
     deleteDocumento: (id: string) => wrap(() => apiClient.deleteDocumentoParceiro(id), 'Documento removido', ['parceiro-documentos']),
     // Config + relatório
     updateConfig: (data: Partial<ParceiroConfig>) => wrap(() => apiClient.updateParceiroConfig(data), 'Configuração salva', ['parceiro-config']),
-    gerarRelatorio: (periodo?: string) => wrap(() => apiClient.gerarRelatorioParceiros(periodo), 'Relatório gerado', []),
+    gerarRelatorio: (params?: { periodo?: string; inicio?: string; fim?: string }) =>
+      wrap(() => apiClient.gerarRelatorioParceiros(params), 'Relatório gerado', []),
   };
 }

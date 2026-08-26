@@ -3658,7 +3658,7 @@ class ApiClient {
 
   getParceiroConfig() { return this.pGet<ParceiroConfig>('/config'); }
   updateParceiroConfig(data: Partial<ParceiroConfig>) { return this.pSend<ParceiroConfig>('/config', 'PUT', data); }
-  gerarRelatorioParceiros(periodo?: string) { return this.pSend<{ attachmentId: string }>('/relatorio', 'POST', { periodo }); }
+  gerarRelatorioParceiros(params?: { periodo?: string; inicio?: string; fim?: string }) { return this.pSend<{ attachmentId: string }>('/relatorio', 'POST', params ?? {}); }
 
   // ── Portal do Parceiro (consultor externo) ─────────────────────────────────
   private async ppGet<T>(path: string): Promise<T> {
