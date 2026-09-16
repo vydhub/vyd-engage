@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { leadService } from '../services/leadService.js';
 import { getLeadNextActionWithReasoning } from '../services/nextActionService.js';
 import { aiAssistantService } from '../services/aiAssistantService.js';
-import { authenticate, requirePermission } from '../middleware/auth.js';
+import { requirePermission } from '../middleware/auth.js';
+import { authenticateOrApiKey } from '../middleware/apiKeyAuth.js';
 import { tenantScope } from '../middleware/tenant.js';
 import { aiLimiter } from '../middleware/rateLimit.js';
 import { createError } from '../middleware/errorHandler.js';
@@ -25,7 +26,7 @@ import { emitToTenant } from '../services/socketService.js';
 const router = Router();
 
 // All routes require authentication and tenant scope
-router.use(authenticate);
+router.use(authenticateOrApiKey('leads:read'));
 router.use(tenantScope);
 
 /**

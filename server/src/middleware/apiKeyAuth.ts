@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
 import prisma from '../config/database.js';
 import { createError } from './errorHandler.js';
+import { authenticate, isConsultorAllowed } from './auth.js';
 
 /**
  * API Key authentication + scope authorization (API-2.1).
@@ -35,6 +36,8 @@ export interface AuthenticatedApiKey {
   id: string;
   tenantId: string;
   scopes: string[];
+  /** Usuario real ao qual a chave esta vinculada (API-2.2). Nulo = chave legada. */
+  userId: string | null;
 }
 
 declare global {
@@ -73,7 +76,14 @@ export async function apiKeyAuth(req: Request, _res: Response, next: NextFunctio
     // Keys are stored hashed (bcrypt). We must compare against each active key.
     const activeKeys = await prisma.apiKey.findMany({
       where: { active: true },
-      select: { id: true, tenantId: true, keyHash: true, scopes: true, expiresAt: true },
+      select: {
+        id: true,
+        tenantId: true,
+        keyHash: true,
+        scopes: true,
+        expiresAt: true,
+        userId: true,
+      },
     });
 
     let matched: (typeof activeKeys)[number] | null = null;
@@ -96,6 +106,7 @@ export async function apiKeyAuth(req: Request, _res: Response, next: NextFunctio
       id: matched.id,
       tenantId: matched.tenantId,
       scopes: matched.scopes ?? [],
+      userId: matched.userId ?? null,
     };
 
     // Best-effort lastUsedAt update — never block the request.
@@ -143,5 +154,112 @@ export function requireScope(scope: ApiScope) {
     }
 
     next();
+  };
+}
+
+// ---------------------------------------------------------------------------
+// API-2.2 - Chave de API como credencial de um usuario REAL
+// ---------------------------------------------------------------------------
+
+/**
+ * Leitura por API Key nas rotas que dependem de `req.user`.
+ *
+ * As rotas comerciais (deals/leads/tasks/reports) resolvem tenant, visibilidade e
+ * perfil de permissao a partir de `req.user` - uma API Key sozinha nao e um
+ * principal. Por isso a chave precisa estar VINCULADA a um usuario real
+ * (`ApiKey.userId`), e este middleware carrega esse usuario com exatamente as
+ * mesmas checagens do `authenticate` (existe, ACTIVE, gate do CONSULTOR).
+ * Nenhuma identidade e fabricada.
+ *
+ * FAIL-CLOSED em camadas:
+ *  1. sem header `X-API-Key` -> delega ao `authenticate` de sempre (nada muda);
+ *  2. `ENABLE_API_KEY_READ` != 'true' -> 401 (desligado por padrao, inclusive em producao);
+ *  3. metodo != GET/HEAD -> 403 (por esta porta a chave e SOMENTE LEITURA);
+ *  4. chave sem `userId` (legado) -> 403;
+ *  5. escopo ausente -> 403 (`requireScope`);
+ *  6. usuario inexistente/inativo, ou de tenant diferente do da chave -> 401/403.
+ */
+export function apiKeyReadEnabled(): boolean {
+  return process.env.ENABLE_API_KEY_READ === 'true';
+}
+
+async function attachApiKeyUser(req: Request, _res: Response, next: NextFunction): Promise<void> {
+  try {
+    const boundUserId = req.apiKey?.userId;
+    if (!boundUserId) {
+      return next(createError('API key is not bound to a user', 403, 'API_KEY_NOT_BOUND'));
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: boundUserId },
+      select: {
+        id: true,
+        email: true,
+        status: true,
+        tenantId: true,
+        role: true,
+        isPlatformAdmin: true,
+      },
+    });
+
+    if (!user) {
+      return next(createError('User not found', 401, 'USER_NOT_FOUND'));
+    }
+    if (user.status !== 'ACTIVE') {
+      return next(createError('User account is not active', 403, 'USER_INACTIVE'));
+    }
+    // Defesa em profundidade: a FK nao impede vincular por engano um usuario de
+    // outro tenant. O tenant da chave e o do usuario TEM que ser o mesmo.
+    if (user.tenantId !== req.apiKey?.tenantId) {
+      return next(createError('API key/user tenant mismatch', 403, 'API_KEY_TENANT_MISMATCH'));
+    }
+
+    req.user = {
+      userId: user.id,
+      tenantId: user.tenantId,
+      email: user.email,
+      role: user.role,
+      isPlatformAdmin: user.isPlatformAdmin,
+    };
+
+    // Mesmo gate fail-closed do `authenticate`.
+    if (user.role === 'CONSULTOR' && !isConsultorAllowed(req.originalUrl)) {
+      return next(createError('Acesso restrito ao Portal do Parceiro', 403, 'PORTAL_ONLY'));
+    }
+
+    next();
+  } catch (error) {
+    next(error);
+  }
+}
+
+export function authenticateOrApiKey(scope: ApiScope) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const provided = (req.headers['x-api-key'] as string | undefined)?.trim();
+
+    // Sem chave: caminho de sempre (sessao JWT), byte a byte o comportamento atual.
+    if (!provided) {
+      void authenticate(req, res, next);
+      return;
+    }
+
+    if (!apiKeyReadEnabled()) {
+      return next(createError('API key access is disabled', 401, 'API_KEY_DISABLED'));
+    }
+
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      return next(createError('API keys are read-only here', 403, 'API_KEY_READ_ONLY'));
+    }
+
+    void apiKeyAuth(req, res, (authErr?: unknown) => {
+      if (authErr) return next(authErr);
+      apiKeyRateLimiter(req, res, (limitErr?: unknown) => {
+        if (limitErr) return next(limitErr);
+        requireScope(scope)(req, res, (scopeErr?: unknown) => {
+          if (scopeErr) return next(scopeErr);
+          void attachApiKeyUser(req, res, next);
+        });
+      });
+    });
   };
 }

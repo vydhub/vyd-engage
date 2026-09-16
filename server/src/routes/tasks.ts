@@ -2,7 +2,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { z } from 'zod';
 import prisma from '../config/database.js';
 import { taskService } from '../services/taskService.js';
-import { authenticate } from '../middleware/auth.js';
+import { authenticateOrApiKey } from '../middleware/apiKeyAuth.js';
 import { tenantScope } from '../middleware/tenant.js';
 import { createError } from '../middleware/errorHandler.js';
 import { TaskStatus, TaskPriority, TaskType, NotificationType } from '@prisma/client';
@@ -14,7 +14,7 @@ import { visibilityScope, getEffective } from '../services/permissionService.js'
 
 const router = Router();
 
-router.use(authenticate);
+router.use(authenticateOrApiKey('tasks:read'));
 router.use(tenantScope);
 
 const createTaskSchema = z.object({

@@ -110,6 +110,7 @@ model User {
   goals                 Goal[]
   assignedCompanies     Company[]             @relation("CompanyAssignment")
   ledTeams              Team[]                @relation("TeamLeader")
+  apiKeys               ApiKey[]
 
   @@index([email])
   @@index([tenantId])
@@ -1273,6 +1274,14 @@ model ApiKey {
   name       String
   key        String    @unique
   keyHash    String // Hashed version for verification
+
+  // API-2.2 - principal da chave: ela passa a ser credencial de um usuario REAL
+  // do tenant (ex.: usuario de servico de um agente). As rotas comerciais
+  // resolvem visibilidade e perfil de permissao por userId, entao sem esse
+  // vinculo a chave nao alcanca essas rotas. Opcional: chaves legadas (nulo)
+  // seguem valendo exatamente onde ja valiam.
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
   scopes     String[]  @default([]) // Granular permission scopes (empty = full access, backward compat)
   lastUsedAt DateTime?
   expiresAt  DateTime?
@@ -1283,6 +1292,7 @@ model ApiKey {
 
   @@index([tenantId])
   @@index([keyHash])
+  @@index([userId])
 }
 
 model Webhook {
