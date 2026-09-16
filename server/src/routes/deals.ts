@@ -6,7 +6,7 @@ import { forecastService } from '../services/forecastService.js';
 import { getDealNextAction, getActionSummary } from '../services/nextActionService.js';
 import { dealScoringService } from '../services/dealScoringService.js';
 import { meetingService } from '../services/meetingService.js';
-import { authenticate } from '../middleware/auth.js';
+import { authenticateOrApiKey } from '../middleware/apiKeyAuth.js';
 import { tenantScope } from '../middleware/tenant.js';
 import { aiLimiter } from '../middleware/rateLimit.js';
 import { createError } from '../middleware/errorHandler.js';
@@ -41,7 +41,7 @@ function handleMeetingAudioUpload(req: Request, res: Response, next: NextFunctio
 
 const router = Router();
 
-router.use(authenticate);
+router.use(authenticateOrApiKey('deals:read'));
 router.use(tenantScope);
 
 const createDealSchema = z.object({

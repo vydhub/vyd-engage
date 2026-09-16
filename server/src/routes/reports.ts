@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database.js';
-import { authenticate } from '../middleware/auth.js';
+import { authenticateOrApiKey } from '../middleware/apiKeyAuth.js';
 import { tenantScope } from '../middleware/tenant.js';
 import { ReportType } from '@prisma/client';
 import { createError } from '../middleware/errorHandler.js';
@@ -11,7 +11,7 @@ import { visibilityScope } from '../services/permissionService.js';
 
 const router = Router();
 
-router.use(authenticate);
+router.use(authenticateOrApiKey('reports:read'));
 router.use(tenantScope);
 
 const reportSchema = z.object({
