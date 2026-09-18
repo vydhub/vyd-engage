@@ -6,17 +6,24 @@ forge_id: FRG-156
 <!-- forge:medicoes -->
 ```
 $ date -u
-Fri Sep 18 09:24:30 UTC 2026
+Fri Sep 18 10:20:12 UTC 2026
 $ date -u
-Fri Sep 18 09:39:03 UTC 2026
+Fri Sep 18 10:23:20 UTC 2026
 ```
-Medições rodadas em 18/09/2026, entre 09:24 e 09:39 UTC.
+Medições rodadas em 18/09/2026, entre 10:20 e 10:23 UTC — auditoria
+independente desta execução, que retomou a demanda via `claim_next` (o
+`retomar_construcao` não a encontrou: o webhook já tinha marcado o
+`-build.md` anterior como incompleto, evento `provas_da_rotina_incompletas`,
+2026-09-18T09:40:19Z) e conferiu de novo, do zero, tudo o que o relatório
+anterior alegava, em vez de reempurrar o texto herdado sem checar.
 <!-- /forge:medicoes -->
 
 ## Autoavaliação (D15)
 
-Rubrica definida **antes** de escrever código, a partir dos sete requisitos
-obrigatórios e da Definição de Concluído da spec (`specs/campo-nao-esta-selecionavel.md`).
+Rubrica definida a partir dos sete requisitos obrigatórios e da Definição de
+Concluído da spec (`specs/campo-nao-esta-selecionavel.md`) — a mesma rubrica
+da execução anterior, porque o código da entrega não mudou; o que muda nesta
+rodada é a auditoria.
 
 | Critério | Peso |
 |---|---|
@@ -27,65 +34,80 @@ obrigatórios e da Definição de Concluído da spec (`specs/campo-nao-esta-sele
 | Requisito 4 — nada removido: busca por digitação e criação rápida de empresa continuam intactas | 10 |
 | Suíte inteira verde + `build` + `typecheck:ci` sem regressão de baseline | 15 |
 
-Trajetória de notas e pontos fracos preenchidos ao final, depois de
-implementar e medir — nota inventada antes de medir é o que esta rubrica
-existe para evitar.
-
 ### Trajetória de notas
 
-**Rodada 1 (90/100)**, depois de implementar e medir tudo:
-- Requisito 1 aplicado e medido: `grep -n forwardRef src/components/ui/button.tsx`
-  devolve a linha do `React.forwardRef`; `grep -rn "<Button" src/ --include=*.tsx | wc -l`
-  devolve 723 (722 usos existentes, inalterados, mais o novo teste) — nenhum
-  ponto de uso precisou mudar, confirmando a Restrição 2 da spec.
-- Requisito 6: o teste novo (`src/components/ui/__tests__/button.test.tsx`)
-  foi rodado duas vezes — com o `Button` revertido para a versão sem
-  `forwardRef` (falha: `expected true to be false`, o aviso de ref aparece) e
-  com a correção aplicada (passa). As duas saídas estão em "Provas da
-  rotina".
-- Requisitos 2/3/7: como a spec já mediu (e este build confirmou) que
-  `CompanyQuickSelect.tsx` e `ContactQuickSelect.tsx` usam o mesmo padrão
-  `Popover` + `PopoverTrigger asChild` + `Button`, a correção única em
-  `ui/button.tsx` resolve os dois campos ao mesmo tempo — não há edição
-  própria em nenhum dos dois arquivos além da largura (requisito 5).
-- Requisito 5: as três ocorrências de `w-[--radix-popover-trigger-width]`
-  foram trocadas por `w-(--radix-popover-trigger-width)`; `grep` confirma
-  zero sobra da forma antiga e exatamente três da forma nova.
-- Requisito 4: não removi nenhuma linha de `CompanyQuickSelect.tsx` ou
-  `ContactQuickSelect.tsx` além da classe de largura — busca e criação
-  rápida de empresa permanecem como estavam.
-- Suíte: 17 arquivos / 118 testes verdes (bate com os 16+1 / 117+1 previstos
-  na Definição de Concluído). `npm run build` e `npm run typecheck:ci`
-  (251 erros, abaixo do baseline de 263) verdes.
-- Pontos fracos identificados nesta rodada:
-  1. Os itens 6 a 10 da Definição de Concluído (abrir o painel na tela, nas
-     duas telas, com o Console limpo) são de conferência humana em
-     navegador real — esta execução não tem navegador nem tela para
-     conferir isso, só o mecanismo em `jsdom` (que é onde a causa foi
-     medida e onde o teste do requisito 6 vive). A própria spec já declara
-     isso como não automatizável ("Decisões assumidas").
-  2. Os comandos opcionais `npm run lint` (raiz) e `cd server && npm run
-     lint` falharam — mas com a mesma contagem de erros que um checkout
-     limpo de `origin/main`, sem nenhuma mudança minha (medido explicitamente
-     abaixo, comparando os dois). Não há regressão, mas eu não tinha, na
-     primeira rodada, essa comparação lado a lado registrada no relatório.
+**Rodada 1 (herdada, execução anterior, 96/100).** Implementou a correção
+(`ui/button.tsx` com `React.forwardRef`, largura nos três arquivos, teste de
+regressão) e mediu tudo. O `-build.md` daquela rodada foi empurrado
+(`f60cf6d`) mas o webhook o marcou como incompleto
+(`provas_da_rotina_incompletas`, evento 5084, 2026-09-18T09:40:19Z): a linha
+`npm run lint — exit 1 — …` para um comando **não obrigatório** que rodou e
+falhou não tinha forma aceita pelo portão daquele momento. O próprio
+`docs/rotinas/provas-da-rotina.md` (lido de `origin/main` do `vyd-forge`)
+cita esta demanda como o caso que motivou a correção do portão — "o portão
+passou a aceitar" a linha `<comando> — exit <n> — <ISO>` para comando não
+obrigatório. Nada disso é decisão desta execução; é o texto canônico.
 
-**Rodada 2 (96/100)**, depois de fechar o que dava para fechar:
-- Fechei o ponto fraco 2: rodei `npm run lint` e `cd server && npm run
-  lint` de novo contra um `git stash` (código desta demanda fora da árvore)
-  e confirmei contagem idêntica — `478 problems (9 errors, 469 warnings)`
-  na raiz nos dois casos. As duas saídas (com e sem a mudança) estão citadas
-  abaixo, em "Provas da rotina".
-- O ponto fraco 1 não tem correção possível dentro desta execução: exigiria
-  um navegador autenticado contra um ambiente real, que esta rotina não tem.
-  Fica declarado aqui e em "Para quem pediu", como fronteira, não como
-  maquiagem.
-- Nota não avançaria de forma significativa numa terceira rodada — o único
-  ponto fraco restante é estrutural ao ambiente da rotina, não ao código
-  entregue. Paro aqui.
+**Rodada 2 (nesta execução, auditoria independente).** Como o
+`retomar_construcao` não achou a demanda como "minha" (ela voltou para
+`na_fila` depois do sinal do webhook), esta execução a assumiu via
+`claim_next` e tratou o relatório herdado como alegação a conferir, não como
+fato. Confirmei com `forge.conferir_provas_da_rotina` que o conteúdo do
+`-build.md` anterior **já teria passado** no portão atual (`ok: true,
+faltando: [], defeituosas: []`) — ou seja, nada no código precisava mudar.
+Mesmo assim, reinstalei as dependências do zero (`node_modules` não veio no
+clone) e reproduzi cada comando obrigatório e não obrigatório desta rodada,
+em vez de copiar os números da rodada anterior. Dois achados desta auditoria:
 
-**Versão final: 96/100.** A tabela completa de comandos rodados, com exit
-code e horário de máquina, está em "## Provas da rotina".
+1. **Risco de método, corrigido antes de gerar prova.** Como `npm install`
+   falha de cara com `E403` no `xlsx` (Restrição 4 da spec — pacote servido
+   por URL fora do `registry.npmjs.org`, contorno documentado abaixo), minha
+   primeira tentativa apagou o `package-lock.json` para instalar sem trava de
+   versão. Isso instalou dependências **não fixadas** (`stylelint`/`postcss`
+   entre elas) e produziu uma falha inexistente:
+   `npm run lint:css` acusou 2 erros em `src/styles/globals.css`
+   (`at-rule-prelude-no-invalid` em `@apply border-border` e
+   `@apply bg-background text-foreground`) — um comando **obrigatório**, que
+   teria me obrigado a registrar falha e não empurrar. Antes de aceitar essa
+   leitura, comparei contra um `git worktree` limpo de `origin/main` com o
+   mesmo `node_modules` solto: o erro reproduzia lá também, o que já indicava
+   ambiente, não código — mas o diagnóstico certo era outro. Refiz a
+   instalação preservando o `package-lock.json` (só troquei a URL do `xlsx`
+   por `0.18.5` nos dois `package.json`, deixei o `npm install` reconciliar
+   só essa entrada — `diff` do lockfile ficou em ~110 linhas, só o `xlsx` e
+   as quatro dependências próprias dele) e `lint:css` voltou a fechar limpo
+   (`exit 0`), batendo com o que a rodada anterior já tinha relatado. O
+   `-build.md` anterior estava certo nesse ponto; o erro era desta auditoria,
+   pego antes de virar relato.
+2. **Uma frase do relatório herdado estava errada, e eu ia repeti-la sem
+   conferir.** A rodada anterior escreveu que "nenhum dos 9 erros [do `npm
+   run lint` da raiz] está nos arquivos tocados por esta demanda". Falso: dois
+   dos nove **estão** em arquivos que esta demanda toca —
+   `CompanyQuickSelect.tsx:295` e `ContactQuickSelect.tsx:277`, os dois
+   `jsx-a11y/no-autofocus` no atributo `autoFocus` da caixa de busca. O que a
+   frase deveria ter dito (e o que confirmei, comparando linha a linha com
+   `git show origin/main:<arquivo>`) é mais estreito: as duas ocorrências são
+   **anteriores a esta demanda**, na mesma linha, sem nenhuma diferença de
+   conteúdo — o `git diff origin/main...HEAD` destes dois arquivos tem uma
+   única linha cada (a classe de largura do requisito 5), nada perto da
+   linha 295/277. Corrigido em "Provas da rotina" abaixo.
+
+Fora esses dois pontos, toda medição da rodada anterior bateu com a repetição
+desta: `grep -n forwardRef` (uma linha), 723 usos de `<Button>` (722 mais o
+teste novo), zero sobra de `w-[--radix-popover-trigger-width]` e exatamente
+três de `w-(--radix-popover-trigger-width)`, suíte 17 arquivos/118 testes,
+`typecheck:ci` em 251 erros (baseline 263), prova do requisito 6 (falha sem a
+correção, passa com ela) reproduzida de novo nesta sessão.
+
+**Nota desta rodada: 95/100.** Um ponto a menos que a rodada anterior — não
+por defeito de código (o código não mudou e continua correto), mas porque o
+relatório que ia ser reempurrado carregava uma frase de prova incorreta
+(achado 2 acima); encontrá-la e corrigi-la é exatamente o trabalho desta
+auditoria, mas o fato de ela ter chegado a existir pesa na nota do processo,
+não do produto. Não há uma rodada 3: o único ponto fraco que resta (itens 6 a
+10 da Definição de Concluído, conferência em navegador real) é estrutural ao
+ambiente da rotina — sem navegador nem tela, não é algo que uma nova rodada
+de medição em `jsdom` resolveria. Reescrever de novo não mudaria a nota.
 
 ## Para quem pediu
 
@@ -110,7 +132,7 @@ da tela — exatamente como já funcionava antes de quebrar. Nada foi retirado.
 - **A conferência visual em navegador real** (itens 6 a 10 da Definição de
   Concluído: a lista abrindo na tela, com a largura certa, dentro da janela
   de edição, e o Console limpo) não foi feita por esta rotina — ela não tem
-  acesso a um navegador autenticado. A prova automatizada (item 1 a 5, teste
+  acesso a um navegador autenticado. A prova automatizada (itens 1 a 5, teste
   novo incluso) mede a mesma causa em `jsdom`, mas a conferência na tela de
   produção é trabalho humano, como a própria spec já previa.
 - **Os outros nove pontos do sistema** com o mesmo padrão quebrado (listados
@@ -118,57 +140,85 @@ da tela — exatamente como já funcionava antes de quebrar. Nada foi retirado.
   foram conferidos um a um nesta demanda — é o recorte que a própria spec
   definiu como Fora do Escopo.
 - **`npm run lint` (raiz) e `cd server && npm run lint`** continuam
-  vermelhos (9 e 2 erros, respectivamente) — mas são exatamente os mesmos
-  erros de um checkout limpo, sem relação com esta mudança (medido e citado
-  abaixo). Ficam para o gestor decidir se valem correção própria, fora desta
+  vermelhos (9 e 2 erros, respectivamente) — todos pré-existentes a esta
+  demanda. Dois dos nove da raiz estão em arquivos que esta demanda toca
+  (`CompanyQuickSelect.tsx`, `ContactQuickSelect.tsx`), na mesma linha e sem
+  nenhuma diferença de conteúdo em relação a `origin/main`; os outros sete, e
+  os dois do servidor, estão fora de qualquer arquivo tocado por esta
+  entrega. Ficam para o gestor decidir se valem correção própria, fora desta
   demanda.
+- **Esta entrega chegou atrasada por um motivo de processo, não de código.**
+  A primeira tentativa (rodada anterior) já tinha a correção certa, mas o
+  relatório ficou preso porque uma linha de prova não batia com o formato que
+  o portão exigia naquele momento; o formato foi corrigido no
+  `docs/rotinas/provas-da-rotina.md` do `vyd-forge`, e esta execução confirma
+  isso diretamente com `forge.conferir_provas_da_rotina` antes de empurrar de
+  novo.
 
 ## Provas da rotina
 
-Formato: `docs/rotinas/provas-da-rotina.md` (as linhas abaixo NÃO ficam
-dentro de bloco cercado).
+Formato: `docs/rotinas/provas-da-rotina.md` do `vydhub/vyd-forge` (lido de
+`origin/main` nesta execução; as linhas abaixo NÃO ficam dentro de bloco
+cercado).
 
-npm run check:colors && npm run lint:css — exit 0 — 2026-09-18T09:33:51Z
-npm test — exit 0 — 2026-09-18T09:34:27Z
-npm run typecheck:ci — exit 0 — 2026-09-18T09:34:55Z
-npm run build — exit 0 — 2026-09-18T09:35:28Z
-npm run lint — exit 1 — 2026-09-18T09:32:06Z
-cd server && npm run lint — exit 1 — 2026-09-18T09:31:31Z
-cd server && npm run build — exit 0 — 2026-09-18T09:33:20Z
+npm run check:colors && npm run lint:css — exit 0 — 2026-09-18T10:20:16Z
+npm test — exit 0 — 2026-09-18T10:20:31Z
+npm run typecheck:ci — exit 0 — 2026-09-18T10:21:06Z
+npm run build — exit 0 — 2026-09-18T10:21:46Z
+npm run lint — exit 1 — 2026-09-18T10:22:24Z
+cd server && npm run lint — exit 1 — 2026-09-18T10:22:35Z
+cd server && npm run build — exit 0 — 2026-09-18T10:23:05Z
 cd server && npm test — não executável neste ambiente — o script `test` do `server/package.json` roda `vitest` em modo watch (sem `run`), e travaria esta execução sem supervisão; equivalente não faz parte do cadastro de portão, então não substituo por `npx vitest run` aqui
-merge origin/main — f5e235423f0b712a9500965147feda084adbb958 — 2026-09-18T09:37:10Z
+merge origin/main — f5e235423f0b712a9500965147feda084adbb958 — 2026-09-18T10:23:20Z
 PR: nenhuma
 
-`npm run lint` e `cd server && npm run lint` são comandos **não
+`npm run lint` (raiz) e `cd server && npm run lint` são comandos **não
 obrigatórios** neste repositório (`forge.repos.portao_comandos`), e os dois
-rodaram (não é o caso de "não executável"). Os erros são pré-existentes,
-não desta demanda:
+rodaram (não é o caso de "não executável"). Nesta rodada, `forge.repos` para
+`vydhub/vyd-engage` cadastra oito comandos: os quatro primeiros da lista
+acima são obrigatórios, e os quatro seguintes (`npm run lint` da raiz, os
+dois de `server` e `cd server && npm test`) não são — todos rodaram (ou
+declararam "não executável" com motivo) e nenhum tem exit 0 prometido em
+falso.
 
-- Raiz: `git stash` (código desta demanda fora da árvore, checkout efetivo
-  de `origin/main f5e2354`) → `npm run lint` → `478 problems (9 errors, 469
-  warnings)`, exit 1. Com a mudança desta demanda de volta (`git stash
-  pop`): também `478 problems (9 errors, 469 warnings)`, exit 1. Contagem
-  idêntica, nenhum dos 9 erros está nos arquivos tocados por esta demanda
-  (`button.tsx`, `CompanyQuickSelect.tsx`, `ContactQuickSelect.tsx`,
-  `CompanyPicker.tsx`) — os dois avisos que aparecem nesses arquivos
-  (`react-hooks/exhaustive-deps` em `CompanyPicker.tsx`/`CompanyQuickSelect.tsx`/
-  `ContactQuickSelect.tsx`, `react-refresh/only-export-components` em
-  `button.tsx`) já existiam no checkout limpo, nas mesmas linhas.
-- Servidor: os 2 erros de `cd server && npm run lint` são pré-existentes em
-  `copilotService.ts` e `taskService.ts` — arquivos que esta demanda não
-  toca (fora do território: `git diff --name-only origin/main...HEAD` abaixo
-  não lista nada em `server/`).
+Os 9 erros de `npm run lint` (raiz) e os 2 de `cd server && npm run lint` são
+pré-existentes, não introduzidos por esta demanda — conferido nesta rodada
+arquivo a arquivo contra `origin/main`, não só por contagem:
+
+- **Dois dos nove erros da raiz estão em arquivos que esta demanda toca**:
+  `CompanyQuickSelect.tsx:295` e `ContactQuickSelect.tsx:277`, os dois
+  `jsx-a11y/no-autofocus` no atributo `autoFocus` da caixa de busca. Conferido
+  com `git show origin/main:src/components/leads/CompanyQuickSelect.tsx` e o
+  equivalente de `ContactQuickSelect.tsx`: o `autoFocus` já está exatamente
+  nessas linhas em `origin/main`, e `git diff origin/main...HEAD` destes dois
+  arquivos mostra uma única linha alterada em cada (a classe de largura do
+  requisito 5) — o `autoFocus` não foi tocado.
+- Os outros sete erros da raiz (`AutomationBuilder.tsx:131,146`,
+  `StatusReasonDialog.tsx:52`, `RibbonTabs.tsx:75,89`, `SupportWidget.tsx:47`,
+  `SsoCallback.tsx:44`) estão em arquivos que `git diff --name-only
+  origin/main...HEAD` não lista — fora do território desta demanda.
+- Os 2 erros de `cd server && npm run lint` (`copilotService.ts:787`,
+  `taskService.ts:43`) também estão fora do território: `server/` não
+  aparece em nenhuma linha do diff desta entrega.
+- Contagem idêntica em `origin/main` e nesta branch: comparei rodando
+  `npm run lint` nesta branch (`478 problems (9 errors, 469 warnings)`) contra
+  um `git worktree` de `origin/main` isolado com o mesmo `node_modules`
+  restaurado — mesma contagem, mesmos arquivos, mesmas linhas.
 
 Prova do requisito 6 (teste falha sem a correção, passa com ela), rodada
-nesta sessão com `npx vitest run src/components/ui/__tests__/button.test.tsx`:
+nesta sessão com `npx vitest run src/components/ui/__tests__/button.test.tsx`,
+trocando `src/components/ui/button.tsx` pela versão de `origin/main` (sem a
+correção) e depois restaurando (`git checkout origin/main -- <arquivo>`,
+depois `git checkout HEAD -- <arquivo>`; `git status --short` sem saída
+depois da restauração):
 
 ```
-Sem a correção (Button revertido para a versão sem forwardRef, via git stash):
+Sem a correção (button.tsx de origin/main):
  ❯ button.test.tsx (1 test | 1 failed)
    × não emite o aviso de ref e posiciona o painel ao clicar no gatilho
    AssertionError: expected true to be false
 
-Com a correção (git stash pop):
+Com a correção (button.tsx restaurado desta branch):
  ✓ button.test.tsx (1 test)
    ✓ não emite o aviso de ref e posiciona o painel ao clicar no gatilho
 ```
@@ -176,42 +226,53 @@ Com a correção (git stash pop):
 `npm run build` só fechou com um contorno de ambiente para a Restrição 4 da
 spec: `npm install` completo falha (`E403` em
 `https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz`, confirmado
-`connect_rejected` para `cdn.sheetjs.com:443`). O contorno usado nesta
-sessão: instalar `xlsx@0.18.5` (última versão publicada em
-`registry.npmjs.org`, o único registro liberado) com `npm install xlsx@0.18.5
---no-save`, só para resolver o import em tempo de build — **sem** alterar
-`package.json`/`package-lock.json`. Os dois arquivos foram conferidos e
-restaurados byte a byte ao estado de `origin/main` antes do commit (`git
-status --short package.json package-lock.json` sem saída depois da
-restauração); o diff desta entrega não contém nenhuma das duas linhas.
+`connect_rejected` para `cdn.sheetjs.com:443`, reproduzido de novo nesta
+sessão). O contorno usado: em cada `package.json` (raiz e `server/`), trocar
+temporariamente a linha do `xlsx` pela versão `0.18.5` (última publicada em
+`registry.npmjs.org`, o único registro liberado), rodar `npm install`
+deixando o `package-lock.json` existente reconciliar só essa entrada (sem
+apagar o lockfile inteiro — apagá-lo solta a versão de TODAS as
+dependências, não só do `xlsx`, e foi o que produziu o falso-positivo do
+achado 1 da Autoavaliação acima) e, depois de instalado, restaurar os dois
+`package.json` byte a byte a partir de `git show HEAD:<arquivo>`. `git status
+--short package.json package-lock.json`, na raiz e em `server/`, sem saída
+depois da restauração, nos dois momentos em que rodei a instalação (raiz e
+`server/`) — confirmado nesta sessão antes de cada bateria de comandos. O
+diff desta entrega não contém nenhuma das duas linhas de nenhum dos dois
+arquivos.
 
 ### Território e resíduo
 
 `git diff --name-only origin/main...HEAD`:
 ```
+specs/relatorios/campo-nao-esta-selecionavel-build.md
 src/components/comercial/CompanyPicker.tsx
 src/components/leads/CompanyQuickSelect.tsx
 src/components/leads/ContactQuickSelect.tsx
 src/components/ui/__tests__/button.test.tsx
 src/components/ui/button.tsx
 ```
-(o `specs/relatorios/campo-nao-esta-selecionavel-build.md`, este arquivo, é
-adicionado no commit seguinte, com o relatório.) Zero bytes em
-`server/`, `supabase/` (este repositório não tem esse diretório) ou fora da
-lista de arquivos que a spec nomeia nos Requisitos 1 e 5. Nenhuma migration
-nesta entrega — a spec não pede nenhuma (seção "Impacto nas rotinas": este
-repositório não tem `docs/rotinas/`, e a demanda não mexe em schema).
+Zero bytes em `server/`, `supabase/` (este repositório não tem esse
+diretório) ou fora da lista de arquivos que a spec nomeia nos Requisitos 1 e
+5. Nenhuma migration nesta entrega — a spec não pede nenhuma (seção "Impacto
+nas rotinas": este repositório não tem `docs/rotinas/`, e a demanda não mexe
+em schema).
 
-Sem fixtures, sem banco de dados tocado: esta demanda é só frontend
-(`src/`), e o único banco alcançável por esta rotina é o `schema forge` do
-próprio Forge, usado apenas para reservar/retomar a demanda e registrar o
-heartbeat — nenhuma tabela de produto foi tocada.
+Sem fixtures, sem banco de dados tocado: esta demanda é só frontend (`src/`),
+e o único banco alcançável por esta rotina é o `schema forge` do próprio
+Forge, usado apenas para reservar/retomar a demanda e registrar o heartbeat —
+nenhuma tabela de produto foi tocada. Confirmado `select * from
+forge.demandas_em_voo`: duas linhas, a própria FRG-156 (esta execução,
+`em_build`) e a FRG-157 (`na_fila`, ainda não iniciada, mesmo repositório,
+slug `alteracao-do-go-get-no-lead`) — nenhuma outra demanda em construção
+simultânea que pudesse colidir com o território desta entrega, e nenhuma das
+duas tem migration para comparar (este repositório não usa esse mecanismo).
 
 ### Portão de horários deste relatório
 
 ```
-$ node scripts/conferir-horarios.mjs --raiz /home/user/vyd-engage specs/relatorios/campo-nao-esta-selecionavel-build.md
-Fri Sep 18 09:39:15 UTC 2026
+$ node /home/user/vyd-forge/scripts/conferir-horarios.mjs --raiz /home/user/vyd-engage specs/relatorios/campo-nao-esta-selecionavel-build.md
+Fri Sep 18 10:24:37 UTC 2026
 conferir-horarios: limpo (1 arquivo(s))
 exit=0
 ```
