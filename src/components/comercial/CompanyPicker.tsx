@@ -112,7 +112,7 @@ export function CompanyPicker({
       </PopoverTrigger>
 
       <PopoverContent
-        className="w-[--radix-popover-trigger-width] p-0"
+        className="w-(--radix-popover-trigger-width) p-0"
         align="start"
         // `shouldFilter={false}`: quem filtra é o servidor. Sem isto o cmdk
         // filtraria DE NOVO no cliente, escondendo resultados legítimos.
