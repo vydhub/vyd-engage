@@ -64,9 +64,6 @@ export const LEAD_STATUS_REASON_LABELS: Record<LeadStatusReason, string> = {
 /** Status terminais (exigem motivo na transição) */
 export const TERMINAL_LEAD_STATUSES: LeadStatus[] = ['PAUSADO', 'CANCELADO', 'ENCERRADO'];
 
-/** Degraus fixos da probabilidade Go×Get (req. 9) */
-export const GO_GET_STEPS = [10, 25, 50, 75, 90] as const;
-
 // Aligned with Prisma TaskPriority enum
 export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 

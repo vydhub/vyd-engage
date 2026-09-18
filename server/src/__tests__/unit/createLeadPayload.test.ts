@@ -30,7 +30,6 @@ vi.mock('ioredis', () => {
 
 import { createLeadSchema, updateLeadSchema } from '../../routes/leads.js';
 
-const GO_GET_STEPS = [10, 25, 50, 75, 90] as const;
 const COMPANY_ID = '11111111-1111-4111-8111-111111111111';
 const CONTACT_ID = '22222222-2222-4222-8222-222222222222';
 
@@ -95,16 +94,37 @@ describe('POST /leads — payload da tela vs schema REAL da rota', () => {
     expect(r.success).toBe(false);
   });
 
-  it('probabilityGoGet fora dos degraus 10/25/50/75/90 é rejeitada (req. 9)', () => {
+  // ── Faixa 0-100 (spec alteracao-do-go-get-no-lead, req. 7 e 11) ───────────
+
+  it('probabilityGoGet 0 é aceita (req. 11)', () => {
+    const r = createLeadSchema.safeParse(payloadDaTela({ probabilityGoGet: 0 }));
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.probabilityGoGet).toBe(0);
+  });
+
+  it('probabilityGoGet 33 é aceita (req. 11)', () => {
     const r = createLeadSchema.safeParse(payloadDaTela({ probabilityGoGet: 33 }));
+    expect(r.success).toBe(true);
+  });
+
+  it('probabilityGoGet 100 é aceita (req. 11)', () => {
+    const r = createLeadSchema.safeParse(payloadDaTela({ probabilityGoGet: 100 }));
+    expect(r.success).toBe(true);
+  });
+
+  it('probabilityGoGet -1 é rejeitada (req. 11)', () => {
+    const r = createLeadSchema.safeParse(payloadDaTela({ probabilityGoGet: -1 }));
     expect(r.success).toBe(false);
   });
 
-  it('probabilityGoGet em cada degrau válido passa (req. 9)', () => {
-    for (const step of GO_GET_STEPS) {
-      const r = createLeadSchema.safeParse(payloadDaTela({ probabilityGoGet: step }));
-      expect(r.success).toBe(true);
-    }
+  it('probabilityGoGet 101 é rejeitada (req. 11)', () => {
+    const r = createLeadSchema.safeParse(payloadDaTela({ probabilityGoGet: 101 }));
+    expect(r.success).toBe(false);
+  });
+
+  it('probabilityGoGet 33.5 é rejeitada (req. 11)', () => {
+    const r = createLeadSchema.safeParse(payloadDaTela({ probabilityGoGet: 33.5 }));
+    expect(r.success).toBe(false);
   });
 
   it('status legado (NEW) é rejeitado pelo schema — a régua nova é a única aceita', () => {
@@ -144,8 +164,37 @@ describe('PUT /leads — edição: vínculos opcionais e limpeza explícita (req
     }
   });
 
-  it('degraus do Go×Get continuam valendo na edição (33 rejeitado; 75 aceito)', () => {
-    expect(updateLeadSchema.safeParse({ id: ID, probabilityGoGet: 33 }).success).toBe(false);
-    expect(updateLeadSchema.safeParse({ id: ID, probabilityGoGet: 75 }).success).toBe(true);
+  // ── Faixa 0-100 (spec alteracao-do-go-get-no-lead, req. 7 e 11) ───────────
+
+  it('probabilityGoGet 0 é aceita na edição e grava o inteiro 0', () => {
+    const r = updateLeadSchema.safeParse({ id: ID, probabilityGoGet: 0 });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.probabilityGoGet).toBe(0);
+  });
+
+  it('probabilityGoGet 33 é aceita na edição', () => {
+    expect(updateLeadSchema.safeParse({ id: ID, probabilityGoGet: 33 }).success).toBe(true);
+  });
+
+  it('probabilityGoGet 100 é aceita na edição', () => {
+    expect(updateLeadSchema.safeParse({ id: ID, probabilityGoGet: 100 }).success).toBe(true);
+  });
+
+  it('probabilityGoGet -1 é rejeitada na edição', () => {
+    expect(updateLeadSchema.safeParse({ id: ID, probabilityGoGet: -1 }).success).toBe(false);
+  });
+
+  it('probabilityGoGet 101 é rejeitada na edição', () => {
+    expect(updateLeadSchema.safeParse({ id: ID, probabilityGoGet: 101 }).success).toBe(false);
+  });
+
+  it('probabilityGoGet 33.5 é rejeitada na edição', () => {
+    expect(updateLeadSchema.safeParse({ id: ID, probabilityGoGet: 33.5 }).success).toBe(false);
+  });
+
+  it('probabilityGoGet null é aceita na edição e limpa o campo', () => {
+    const r = updateLeadSchema.safeParse({ id: ID, probabilityGoGet: null });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.probabilityGoGet).toBeNull();
   });
 });

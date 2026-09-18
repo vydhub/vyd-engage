@@ -41,9 +41,6 @@ router.use(tenantScope);
 const vazioComoAusente = <T extends z.ZodTypeAny>(schema: T) =>
   z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), schema);
 
-// Probabilidade Go×Get: degraus fixos definidos pela área comercial (req. 9)
-const GO_GET_STEPS = [10, 25, 50, 75, 90] as const;
-
 // Exportado para o teste de contrato (createLeadPayload.test.ts) validar o
 // schema REAL da rota — uma cópia divergiria em silêncio.
 export const createLeadSchema = z.object({
@@ -64,10 +61,9 @@ export const createLeadSchema = z.object({
   estimatedTimeline: z.string().max(500).optional(),
   probabilityGoGet: z
     .number()
-    .int()
-    .refine((v): v is (typeof GO_GET_STEPS)[number] => GO_GET_STEPS.includes(v as any), {
-      message: 'Probabilidade Go×Get deve ser 10, 25, 50, 75 ou 90',
-    })
+    .int({ message: 'Probabilidade Go×Get deve ser um número inteiro entre 0 e 100' })
+    .min(0, { message: 'Probabilidade Go×Get deve ser um número inteiro entre 0 e 100' })
+    .max(100, { message: 'Probabilidade Go×Get deve ser um número inteiro entre 0 e 100' })
     .optional(),
   score: z.number().int().min(0).max(100).optional(),
   customFields: z.record(z.any()).optional(),
@@ -87,10 +83,9 @@ export const updateLeadSchema = createLeadSchema.partial().extend({
   estimatedTimeline: z.string().max(500).nullable().optional(),
   probabilityGoGet: z
     .number()
-    .int()
-    .refine((v): v is (typeof GO_GET_STEPS)[number] => GO_GET_STEPS.includes(v as any), {
-      message: 'Probabilidade Go×Get deve ser 10, 25, 50, 75 ou 90',
-    })
+    .int({ message: 'Probabilidade Go×Get deve ser um número inteiro entre 0 e 100' })
+    .min(0, { message: 'Probabilidade Go×Get deve ser um número inteiro entre 0 e 100' })
+    .max(100, { message: 'Probabilidade Go×Get deve ser um número inteiro entre 0 e 100' })
     .nullable()
     .optional(),
   assignedTo: vazioComoAusente(z.string().uuid().nullable().optional()),

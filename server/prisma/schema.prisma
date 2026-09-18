@@ -763,7 +763,7 @@ model Lead {
   // Campos de oportunidade (área comercial)
   estimatedValue    Decimal? @db.Decimal(12, 2)
   estimatedTimeline String?
-  probabilityGoGet  Int? // degraus fixos: 10 | 25 | 50 | 75 | 90 (validação Zod)
+  probabilityGoGet  Int? // percentual digitado: inteiro de 0 a 100 (validação Zod)
 
   // Email marketing opt-out (LGPD) — excluded from all current/future campaigns
   unsubscribed   Boolean   @default(false)
