@@ -200,7 +200,7 @@ export function ContactQuickSelect({
           </Button>
         </PopoverTrigger>
 
-        <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
           {/* shouldFilter={false}: quem filtra é o servidor (padrão do CompanyPicker). */}
           <Command shouldFilter={false}>
             <div className="flex items-center border-b px-3">
