@@ -9,7 +9,6 @@ import { AudioTranscribeButton } from '../AudioTranscribeButton';
 import { CompanyQuickSelect } from './CompanyQuickSelect';
 import { ContactQuickSelect } from './ContactQuickSelect';
 import {
-  GO_GET_STEPS,
   LEAD_SOURCE_LABELS,
   LEAD_STATUS_LABELS,
   LEAD_STATUS_REASON_LABELS,
@@ -47,7 +46,8 @@ export interface LeadOpportunityValues {
   /** Valor estimado mascarado em pt-BR (ex.: "1.234,56"); converta com parseCurrencyBRL. */
   estimatedValue: string;
   estimatedTimeline: string;
-  probabilityGoGet: number | null;
+  /** Probabilidade Go×Get digitada (só dígitos, sem casas decimais); vazio → null na conversão. */
+  probabilityGoGet: string;
   assignedTo: string;
   statusReason: LeadStatusReason | '';
   statusReasonNote: string;
@@ -80,6 +80,19 @@ export function formatCurrencyBRL(value: number | string | null | undefined): st
   return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/** Máscara do Go×Get: só dígitos, sem zero à esquerda (ex.: "007" → "7"). */
+export function maskGoGetPercent(raw: string): string {
+  return raw.replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+}
+
+/** Converte o texto digitado para o inteiro salvo na API; vazio → null. */
+export function parseGoGetPercent(masked: string): number | null {
+  const t = masked.trim();
+  if (!t) return null;
+  const n = Number(t);
+  return Number.isInteger(n) ? n : null;
+}
+
 const STATUS_VALIDOS = Object.keys(LEAD_STATUS_LABELS) as LeadStatus[];
 const ORIGENS_VALIDAS = Object.keys(LEAD_SOURCE_LABELS) as LeadSource[];
 
@@ -93,7 +106,7 @@ export function emptyLeadOpportunityValues(): LeadOpportunityValues {
     notes: '',
     estimatedValue: '',
     estimatedTimeline: '',
-    probabilityGoGet: null,
+    probabilityGoGet: '',
     assignedTo: '',
     statusReason: '',
     statusReasonNote: '',
@@ -117,7 +130,7 @@ export function leadToOpportunityValues(lead: Partial<Lead>): LeadOpportunityVal
     notes: lead.notes || '',
     estimatedValue: formatCurrencyBRL(lead.estimatedValue),
     estimatedTimeline: lead.estimatedTimeline || '',
-    probabilityGoGet: lead.probabilityGoGet ?? null,
+    probabilityGoGet: lead.probabilityGoGet != null ? String(lead.probabilityGoGet) : '',
     assignedTo: lead.assignedTo || '',
     statusReason: (lead.statusReason as LeadStatusReason) || '',
     statusReasonNote: lead.statusReasonNote || '',
@@ -135,6 +148,12 @@ export function validateLeadOpportunityValues(
 ): Record<string, string> {
   const errors: Record<string, string> = {};
   if (!values.name.trim()) errors.name = 'Informe o nome da oportunidade';
+  if (values.probabilityGoGet.trim() !== '') {
+    const n = Number(values.probabilityGoGet);
+    if (!Number.isInteger(n) || n < 0 || n > 100) {
+      errors.probabilityGoGet = 'Probabilidade Go×Get deve ser um número inteiro entre 0 e 100';
+    }
+  }
   if (mode === 'create') {
     if (!values.companyId) errors.companyId = 'Selecione a empresa';
     if (!values.contactId) errors.contactId = 'Selecione o contato';
@@ -161,7 +180,7 @@ export function opportunityValuesToLeadPayload(values: LeadOpportunityValues): P
     notes: values.notes,
     estimatedValue: parseCurrencyBRL(values.estimatedValue),
     estimatedTimeline: values.estimatedTimeline,
-    probabilityGoGet: values.probabilityGoGet,
+    probabilityGoGet: parseGoGetPercent(values.probabilityGoGet),
     // '' aqui significa "Nenhum" selecionado — na EDIÇÃO o useLeads converte em
     // null explícito para LIMPAR o responsável (req. 9); na criação vira ausente.
     assignedTo: values.assignedTo,
@@ -426,22 +445,23 @@ export function LeadOpportunityFields({
 
         <div>
           <Label htmlFor={`${idPrefix}-probability`}>Probabilidade Go×Get</Label>
-          <Select
-            value={value.probabilityGoGet != null ? String(value.probabilityGoGet) : NENHUM}
-            onValueChange={(v) => set({ probabilityGoGet: v === NENHUM ? null : Number(v) })}
-          >
-            <SelectTrigger id={`${idPrefix}-probability`} className="mt-1.5 w-full">
-              <SelectValue placeholder="Não definida" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NENHUM}>Não definida</SelectItem>
-              {GO_GET_STEPS.map((p) => (
-                <SelectItem key={p} value={String(p)}>
-                  {p}%
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="relative mt-1.5">
+            <Input
+              id={`${idPrefix}-probability`}
+              inputMode="numeric"
+              value={value.probabilityGoGet}
+              onChange={(e) => set({ probabilityGoGet: maskGoGetPercent(e.target.value) })}
+              placeholder="Não definida"
+              className="pr-8"
+              aria-describedby={
+                errors.probabilityGoGet ? `${idPrefix}-probability-error` : undefined
+              }
+            />
+            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-muted-foreground">
+              %
+            </span>
+          </div>
+          <FieldMsg id={`${idPrefix}-probability-error`} error={errors.probabilityGoGet} />
         </div>
 
         <div>

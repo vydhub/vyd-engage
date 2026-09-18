@@ -42,6 +42,21 @@ export function LeadForm() {
     id ? `${LEAD_DRAFT_PREFIX}${id}` : `${LEAD_DRAFT_PREFIX}new`,
     emptyLeadOpportunityValues()
   );
+  // Rascunho salvo antes desta entrega guardava probabilityGoGet como
+  // number|null (era o tipo do campo quando ainda era um Select); o campo
+  // novo espera string. Normaliza uma vez, na restauração, sem derrubar o
+  // formulário (spec alteracao-do-go-get-no-lead, Casos Extremos).
+  useEffect(() => {
+    if (!draft.restored) return;
+    const legado = values.probabilityGoGet as unknown;
+    if (typeof legado !== 'string') {
+      setValues((v) => ({
+        ...v,
+        probabilityGoGet: legado == null ? '' : String(legado),
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- shape cru da API de interações
