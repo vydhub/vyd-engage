@@ -1,0 +1,102 @@
+# Publicação automática depois do merge (spec publicacao-automatica-pos-merge).
+#
+# push na main          → publicar: banco (fase antes) → serviço no Railway → site → pendências → conferência
+# workflow_dispatch     → fase-depois | conferencia (disparados pelo Forge ou pelo gestor)
+# pull_request          → conferir-pr: classificador + manifesto, sem segredo de produção
+#
+# A ferramenta vem do vydhub/vyd-forge, FIXADA POR SHA (R6): trocar a versão
+# é uma PR que muda FERRAMENTA_REF. A chave FORGE_FERRAMENTA_CHAVE é só de
+# leitura daquele repositório (R80). Repositório e ferramenta ficam em pastas
+# irmãs ("repo" e "ferramenta") para a ferramenta não entrar no upload do site.
+# Com ".forge/publicacao.json" em "ativa": false, o job de produção roda o
+# passo "inerte" (sem nenhum segredo de produção) e termina em segundos.
+name: Publicação
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      acao:
+        description: "fase-depois ou conferencia"
+        required: true
+        type: choice
+        options: [fase-depois, conferencia]
+
+permissions:
+  contents: read
+
+env:
+  FERRAMENTA_REF: 8c6992749dc71551c5e69b1bda5c7e9840f5c106
+
+jobs:
+  conferir-pr:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: repo
+          fetch-depth: 0
+      - name: Ferramenta de publicação (vydhub/vyd-forge)
+        uses: actions/checkout@v4
+        with:
+          repository: vydhub/vyd-forge
+          ref: ${{ env.FERRAMENTA_REF }}
+          path: ferramenta
+          ssh-key: ${{ secrets.FORGE_FERRAMENTA_CHAVE }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Conferir migrations e manifesto da PR
+        run: node ferramenta/publicacao/bin/publicar.mjs conferir-pr --raiz repo --base "${{ github.event.pull_request.base.sha }}"
+
+  producao:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Uma publicação por vez neste repositório; a que está rodando nunca é
+    # cancelada (R9). Cada etapa parte do seu marco (R8).
+    concurrency:
+      group: publicacao-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: repo
+          fetch-depth: 0
+      - name: Ferramenta de publicação (vydhub/vyd-forge)
+        uses: actions/checkout@v4
+        with:
+          repository: vydhub/vyd-forge
+          ref: ${{ env.FERRAMENTA_REF }}
+          path: ferramenta
+          ssh-key: ${{ secrets.FORGE_FERRAMENTA_CHAVE }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - id: manifesto
+        name: Ler o manifesto
+        run: echo "ativa=$(node -e "process.stdout.write(String(JSON.parse(require('fs').readFileSync('repo/.forge/publicacao.json','utf8')).ativa === true))")" >> "$GITHUB_OUTPUT"
+      - name: Inerte (manifesto com ativa false)
+        if: steps.manifesto.outputs.ativa != 'true'
+        run: node ferramenta/publicacao/bin/publicar.mjs ${{ github.event_name == 'workflow_dispatch' && inputs.acao || 'publicar' }} --raiz repo
+      - name: Dependências da API (o Prisma da fase antes e da fase depois)
+        if: steps.manifesto.outputs.ativa == 'true'
+        working-directory: repo/server
+        run: npm ci --include=dev
+      - name: Publicar
+        if: steps.manifesto.outputs.ativa == 'true'
+        run: node ferramenta/publicacao/bin/publicar.mjs ${{ github.event_name == 'workflow_dispatch' && inputs.acao || 'publicar' }} --raiz repo
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          PUBLICACAO_BANCO_URL: ${{ secrets.ENGAGE_DATABASE_URL }}
