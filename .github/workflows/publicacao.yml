@@ -29,7 +29,7 @@ permissions:
   contents: read
 
 env:
-  FERRAMENTA_REF: 0f4271e135178e6e9a0a555557b5b8aa5465a83f
+  FERRAMENTA_REF: 3dc846e5383ac0e26dfc3e78d9b760976c9dfde6
 
 jobs:
   conferir-pr:
