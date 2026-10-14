@@ -29,7 +29,7 @@ permissions:
   contents: read
 
 env:
-  FERRAMENTA_REF: cdd1453b8dae0b20c3ca6cb794c0185b6853b972
+  FERRAMENTA_REF: 26e772d50ab0706869a6c2b9a0462ec82659a7c2
 
 jobs:
   conferir-pr:
@@ -88,18 +88,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: repo/server/package-lock.json
       - id: manifesto
         name: Ler o manifesto
         run: echo "ativa=$(node -e "process.stdout.write(String(JSON.parse(require('fs').readFileSync('repo/.forge/publicacao.json','utf8')).ativa === true))")" >> "$GITHUB_OUTPUT"
       - name: Inerte (manifesto com ativa false)
         if: steps.manifesto.outputs.ativa != 'true'
         run: node ferramenta/publicacao/bin/publicar.mjs ${{ github.event_name == 'workflow_dispatch' && inputs.acao || 'publicar' }} --raiz repo
-      - name: Dependências da API (o Prisma da fase antes e da fase depois)
-        if: steps.manifesto.outputs.ativa == 'true'
-        working-directory: repo/server
-        run: npm ci --include=dev
       - name: Publicar
         if: steps.manifesto.outputs.ativa == 'true'
         run: node ferramenta/publicacao/bin/publicar.mjs ${{ github.event_name == 'workflow_dispatch' && inputs.acao || 'publicar' }} --raiz repo
