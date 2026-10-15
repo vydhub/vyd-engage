@@ -29,7 +29,7 @@ permissions:
   contents: read
 
 env:
-  FERRAMENTA_REF: 1919babfd235313a6525dfd964752252d1f5a8ac
+  FERRAMENTA_REF: 68bcd4d07a7711137f0bc33e32793c300836eb25
 
 jobs:
   conferir-pr:
