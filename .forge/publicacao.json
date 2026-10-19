@@ -1,6 +1,6 @@
 {
   "versao": 1,
-  "ativa": false,
+  "ativa": true,
   "repositorio": "vydhub/vyd-engage",
   "branchPadrao": "main",
   "banco": {
