@@ -1,0 +1,33 @@
+{
+  "versao": 1,
+  "ativa": false,
+  "repositorio": "vydhub/vyd-engage",
+  "branchPadrao": "main",
+  "banco": {
+    "tipo": "prisma",
+    "diretorio": "server",
+    "migrations": "server/prisma/migrations"
+  },
+  "edges": null,
+  "servico": {
+    "tipo": "railway",
+    "configuracao": "railway.toml",
+    "projeto": "c0d6ce75-7489-4e6e-9867-a3cdc25d7b22",
+    "ambiente": "47983b2f-827c-47c1-b6d7-cbb28d0fef8d",
+    "servico": "3c4ef0fe-2e96-4b03-bd44-61c0387ec095"
+  },
+  "site": {
+    "tipo": "vercel",
+    "projeto": "prj_FhxomqAg6s5nublLKZPl50GcDIhQ",
+    "time": "team_5PkgNs9XKz4J5R2aePXdyxtg",
+    "dominio": "engage.vydhub.com"
+  },
+  "ignorar": [
+    "specs/**",
+    "docs/**",
+    "**/*.md",
+    "extension/**",
+    ".forge/**",
+    ".github/**"
+  ]
+}
