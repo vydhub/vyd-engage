@@ -5,10 +5,10 @@ builder = "nixpacks"
 buildCommand = "cd server && npm ci --include=dev && ./node_modules/.bin/prisma generate && npm run build"
 
 [deploy]
-# `migrate deploy` é seguro agora — todas as 11 migrations originais foram
-# marcadas como applied via `prisma migrate resolve` (banco já estava em sync
-# via db push). Daqui em diante, novas migrations funcionam normalmente.
-startCommand = "cd server && ./node_modules/.bin/prisma migrate deploy && node dist/index.js"
+# Com a publicação automática ativa, as migrations são aplicadas pela fase
+# antes da publicação (vyd-forge/publicacao), antes de a API subir — o
+# startCommand não migra mais.
+startCommand = "cd server && node dist/index.js"
 healthcheckPath = "/health"
 # 300s: o startCommand roda `migrate deploy` ANTES do app subir — com 60s, uma
 # migração esperando lock era morta no meio (linha órfã em _prisma_migrations →
