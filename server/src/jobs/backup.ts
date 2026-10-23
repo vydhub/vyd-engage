@@ -2,6 +2,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
 import path from 'path';
+import { S3Client, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { logger } from '../utils/logger.js';
 import { captureException } from '../utils/sentry.js';
 
@@ -26,7 +27,7 @@ function parseDatabaseUrl(url: string) {
   }
 }
 
-async function runBackup(): Promise<void> {
+export async function runBackup(): Promise<void> {
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) {
     logger.warn('Backup skipped: DATABASE_URL not set');
@@ -93,55 +94,88 @@ async function runBackup(): Promise<void> {
     size: `${(stat.size / 1024 / 1024).toFixed(2)}MB`,
   });
 
-  // Upload to S3 if configured
+  // Cópia fora do Railway (opcional): o volume do backup mora no mesmo Railway
+  // do banco, então perder o projeto levaria banco e backups juntos. As cópias
+  // locais continuam (restauração rápida); o bucket é a que sobrevive a isso.
   const s3Bucket = process.env.BACKUP_S3_BUCKET;
   if (s3Bucket) {
     try {
-      await uploadToS3(backupPath, s3Bucket, filename);
-      fs.unlinkSync(backupPath);
-      logger.info('Backup uploaded to S3 and local copy removed', {
-        bucket: s3Bucket,
-        key: filename,
-      });
+      const key = await uploadToS3(backupPath, s3Bucket, filename);
+      logger.info('Backup uploaded to S3', { bucket: s3Bucket, key });
     } catch (err: any) {
-      logger.error('S3 upload failed, keeping local backup', { error: err.message });
+      logger.error('🚨 Envio do backup para o bucket FALHOU — só a cópia local existe', {
+        error: err.message,
+      });
       captureException(err instanceof Error ? err : new Error(String(err)), {
         job: 'backup',
         stage: 's3-upload',
         bucket: s3Bucket,
       });
-      // Cópia local permanece — poda para não acumular sem limite no disco.
-      pruneOldBackups(backupDir);
     }
-  } else {
-    // Prune old local backups
-    pruneOldBackups(backupDir);
   }
+
+  pruneOldBackups(backupDir);
 }
 
-async function uploadToS3(localPath: string, bucket: string, key: string): Promise<void> {
-  const region = process.env.BACKUP_S3_REGION || 'us-east-1';
-  const accessKey = process.env.AWS_ACCESS_KEY_ID;
-  const secretKey = process.env.AWS_SECRET_ACCESS_KEY;
-  if (!accessKey || !secretKey) {
-    throw new Error('AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are required for S3 upload');
+/**
+ * Envia o dump para um bucket S3-compatível (AWS S3, Cloudflare R2, Backblaze
+ * B2, MinIO) pelo SDK — o container não tem a CLI `aws`. Configuração por env:
+ *
+ *   BACKUP_S3_BUCKET              (liga o envio)
+ *   BACKUP_S3_ACCESS_KEY_ID       (obrigatório)
+ *   BACKUP_S3_SECRET_ACCESS_KEY   (obrigatório)
+ *   BACKUP_S3_ENDPOINT            (R2/B2/MinIO; ausente = AWS)
+ *   BACKUP_S3_REGION              (default "auto" com endpoint, "us-east-1" sem)
+ *   BACKUP_S3_FORCE_PATH_STYLE    ("true" p/ MinIO e afins)
+ *
+ * Chaves e bucket próprios, separados dos anexos (STORAGE_S3_*): quem vazar a
+ * chave dos anexos não alcança os backups. A retenção no bucket fica com a
+ * regra de ciclo de vida do próprio bucket.
+ */
+async function uploadToS3(localPath: string, bucket: string, filename: string): Promise<string> {
+  const accessKeyId = process.env.BACKUP_S3_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.BACKUP_S3_SECRET_ACCESS_KEY;
+  if (!accessKeyId || !secretAccessKey) {
+    throw new Error('BACKUP_S3_ACCESS_KEY_ID e BACKUP_S3_SECRET_ACCESS_KEY são obrigatórias para enviar o backup');
   }
 
-  const s3Key = `database-backups/${key}`;
-  const url = `https://${bucket}.s3.${region}.amazonaws.com/${s3Key}`;
+  const endpoint = process.env.BACKUP_S3_ENDPOINT || undefined;
+  const client = new S3Client({
+    region: process.env.BACKUP_S3_REGION || (endpoint ? 'auto' : 'us-east-1'),
+    ...(endpoint ? { endpoint } : {}),
+    forcePathStyle: process.env.BACKUP_S3_FORCE_PATH_STYLE === 'true',
+    credentials: { accessKeyId, secretAccessKey },
+    // Corpo em stream: sem isto o SDK manda checksum em trailer (aws-chunked),
+    // que R2/B2/MinIO recusam. A integridade é conferida pelo tamanho abaixo.
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+    responseChecksumValidation: 'WHEN_REQUIRED',
+  });
 
-  // AWS Signature V4 requires crypto — delegate to child_process aws cli if available,
-  // otherwise use presigned URL pattern via environment-provided CLI.
-  // Simplest production path: install `aws` CLI in the Railway container and call it.
-  await execAsync(
-    `aws s3 cp --no-progress "${localPath}" "s3://${bucket}/${s3Key}" --region "${region}"`,
-    {
-      env: { ...process.env, AWS_ACCESS_KEY_ID: accessKey, AWS_SECRET_ACCESS_KEY: secretKey },
-      maxBuffer: 16 * 1024 * 1024,
-      timeout: 15 * 60_000,
+  const key = `database-backups/${filename}`;
+  const size = fs.statSync(localPath).size;
+  // Mesmo teto do pg_dump: um envio pendurado não pode segurar o reagendamento.
+  const abortSignal = AbortSignal.timeout(15 * 60_000);
+  try {
+    await client.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: fs.createReadStream(localPath),
+        ContentLength: size,
+        ContentType: 'application/octet-stream',
+      }),
+      { abortSignal }
+    );
+    const head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }), {
+      abortSignal,
+    });
+    if (head.ContentLength !== size) {
+      throw new Error(`Objeto no bucket com ${head.ContentLength} bytes; o dump local tem ${size}`);
     }
-  );
-  void url; // suppress unused warning
+  } finally {
+    client.destroy();
+  }
+  return key;
 }
 
 function pruneOldBackups(dir: string): void {
