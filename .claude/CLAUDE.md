@@ -298,7 +298,7 @@ const schema = z.object({ name: z.string().min(1), email: z.string().email() });
 
 | Variável | Notas |
 |----------|-------|
-| `VITE_API_URL` | Em **produção é a PRÓPRIA origem do frontend** (`https://engage.vydhub.com`), não a URL do Railway — e isso é intencional. O backend é alcançado por **rewrite** no `vercel.json` (`/api` e `/socket.io` → Railway), mantendo tudo same-origin. **NÃO troque para a URL do Railway:** o CSRF é double-submit lido de `document.cookie` (`src/services/api/client.ts`), o JS ficaria cego para o `csrf-token` vindo de outro host e **toda escrita passaria a dar 403**; além disso os cookies são host-only (`server/src/utils/cookies.ts`, sem `domain`) e o handshake do socket seria recusado. Em dev local, `http://localhost:3001`. |
+| `VITE_API_URL` | Em **produção é a PRÓPRIA origem do frontend** (`https://engage.vydhub.com`), não a URL do Railway — e isso é intencional. O backend é alcançado por **rewrite** no `vercel.json` (`/api` e `/socket.io` → Railway), mantendo tudo same-origin. **NÃO troque para a URL do Railway:** o CSRF é double-submit lido de `document.cookie` (`src/services/api/client.ts`), o JS ficaria cego para o `csrf-token` vindo de outro host e **toda escrita passaria a dar 403**; além disso os cookies são host-only (`server/src/utils/cookies.ts`, sem `domain`) e o handshake do socket seria recusado. **Na Vercel ela existe só no ambiente Production:** os previews ficam sem ela e caem na própria origem do preview (`getApiUrl` em `client.ts`, que o `useSocket` também usa). Se ela voltar a valer para Preview, todo preview fala com `engage.vydhub.com` e o login de um preview termina em produção. Em dev local, `http://localhost:3001`. |
 
 > **Setup local primeiro acesso:** se `server/.env` não existe, copie de `.env.example`: `cp server/.env.example server/.env`. Sem isso o backend não sobe e o login não responde.
 
@@ -307,7 +307,7 @@ const schema = z.object({ name: z.string().min(1), email: z.string().email() });
 | Componente | Plataforma | Config |
 |------------|------------|--------|
 | Backend | Railway | `railway.toml` na raiz aponta para `server/` (`cd server && npm ci && npm run build` → `npm start`). |
-| Frontend | Vercel | Build via `npm run build` → `build/`. `VITE_API_URL` já está setada (= a própria origem — ver tabela acima). O `vercel.json` proxia `/api` e `/socket.io` até o Railway; a regra do `/socket.io` **tem que vir antes do catch-all**, senão o handshake recebe o `index.html`. A Vercel proxia o polling mas **não** o upgrade de WebSocket (medido: `400`), por isso o cliente conecta com `transports: ['polling','websocket']`. |
+| Frontend | Vercel | Build via `npm run build` → `build/`. `VITE_API_URL` já está setada só em Production (= a própria origem — ver tabela acima). O login de um preview volta ao preview porque o botão usa o handoff do portal (`src/lib/vydId.ts`) e o app `engage` do IdP aceita `https://vyd-engage-*-klebers-projects-2f5727d9.vercel.app` em `allowed_redirect_urls`. O `vercel.json` proxia `/api` e `/socket.io` até o Railway; a regra do `/socket.io` **tem que vir antes do catch-all**, senão o handshake recebe o `index.html`. A Vercel proxia o polling mas **não** o upgrade de WebSocket (medido: `400`), por isso o cliente conecta com `transports: ['polling','websocket']`. |
 | Postgres | Externo (Supabase/Railway/Neon) | Connection string em `DATABASE_URL`. |
 | Redis | Externo (Upstash/Railway) | Apenas se jobs habilitados. |
 
