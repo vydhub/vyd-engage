@@ -178,6 +178,26 @@ function getConfig(entity: TrashEntity): EntityConfig {
   return ENTITIES[entity];
 }
 
+/**
+ * Negócio de demanda descartada não é item de lixeira (spec captura-demandas, E-17): o
+ * `deletedAt` dele é um estado que vem do Flow. Não aparece, não se restaura à mão e não
+ * é expurgado, porque a `Demanda` fica.
+ */
+function filtroDaLixeira(entity: TrashEntity): Record<string, unknown> {
+  return entity === 'deals' ? { demanda: null } : {};
+}
+
+async function recusarSeForDemanda(tenantId: string, entity: TrashEntity, id: string) {
+  if (entity !== 'deals') return;
+  const demanda = await prisma.demanda.findFirst({
+    where: { tenantId, dealId: id },
+    select: { id: true },
+  });
+  if (demanda) {
+    throw createError('Andamento controlado pelo Flow', 403, 'DEAL_CONTROLADO_PELO_FLOW');
+  }
+}
+
 // ── Listagem da lixeira ──────────────────────────────────────────────────────
 
 export interface TrashItem {
@@ -222,7 +242,7 @@ export async function listTrash(
 
   const cfg = getConfig(entity);
   const delegate = cfg.delegate();
-  const where = { tenantId, deletedAt: { not: null } };
+  const where = { tenantId, deletedAt: { not: null }, ...filtroDaLixeira(entity) };
   const skip = (Math.max(1, page) - 1) * PAGE_SIZE;
 
   const [records, total] = await Promise.all([
@@ -356,6 +376,8 @@ export async function restoreItem(
     return;
   }
 
+  await recusarSeForDemanda(tenantId, entity, id);
+
   const cfg = getConfig(entity);
   const delegate = cfg.delegate();
 
@@ -390,6 +412,21 @@ export async function purgeItem(
   id: string
 ): Promise<void> {
   if (entity === ATTACHMENTS_ENTITY) return purgeAttachment(tenantId, id);
+
+  await recusarSeForDemanda(tenantId, entity, id);
+
+  // A chave de Contrato para Company é NO ACTION: contrato, mesmo excluído, guarda o saldo
+  // e o histórico das demandas. A recusa é clara, em vez de um 500 da chave estrangeira.
+  if (
+    entity === 'companies' &&
+    (await prisma.contrato.count({ where: { tenantId, companyId: id } })) > 0
+  ) {
+    throw createError(
+      'Empresa com contratos não pode ser expurgada: os contratos guardam saldo e histórico.',
+      400,
+      'COMPANY_HAS_RELATIONS'
+    );
+  }
 
   const cfg = getConfig(entity);
   const delegate = cfg.delegate();
@@ -448,7 +485,13 @@ export async function purgeExpiredForEntity(
   const delegate = cfg.delegate();
 
   const stale = (await delegate.findMany({
-    where: { tenantId, deletedAt: { lt: cutoff } },
+    where: {
+      tenantId,
+      deletedAt: { lt: cutoff },
+      ...filtroDaLixeira(entity),
+      // Empresa com contrato não sai no expurgo automático (ver purgeItem).
+      ...(entity === 'companies' ? { contratos: { none: {} } } : {}),
+    },
     orderBy: { deletedAt: 'asc' },
     // Evita carregar demais de uma vez.
     take: 500,

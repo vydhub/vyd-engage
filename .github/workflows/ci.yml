@@ -72,6 +72,22 @@ jobs:
       - name: Build
         run: cd server && npm run build
 
+      - name: Captura de Demandas — prova em banco real
+        # Saldo, idempotência e concorrência só se provam em Postgres de verdade
+        # (spec captura-demandas). Sem continue-on-error: se falhar, o job falha. Roda só
+        # este arquivo, sobre o banco do serviço `postgres` deste job, já sincronizado pelo
+        # `db push` acima, e não depende dos testes antigos que falham no passo seguinte.
+        # CAPTURA_BANCO_EXIGIR: se a guarda do arquivo não casar (sem a variável acima, ou com
+        # o banco fora de localhost), o passo falha em vez de pular a prova e ficar verde.
+        run: cd server && npx vitest run src/__tests__/capturaBancoReal.test.ts
+        env:
+          DATABASE_URL: postgresql://flowcrm:flowcrm_test@localhost:5432/flowcrm_test
+          JWT_SECRET: test-jwt-secret-ci
+          JWT_REFRESH_SECRET: test-jwt-refresh-secret-ci
+          NODE_ENV: test
+          CAPTURA_BANCO_DESCARTAVEL: '1'
+          CAPTURA_BANCO_EXIGIR: '1'
+
       - name: Test
         # continue-on-error: tests pré-existentes têm bugs (Redis ECONNREFUSED,
         # RESEND_API_KEY não configurado em CI). Tratar separadamente sem

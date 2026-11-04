@@ -81,6 +81,9 @@ app.use(
   })
 );
 app.use(compression());
+// Eventos da Captura: a assinatura é conferida sobre os bytes crus, antes de interpretar o
+// JSON (contrato 06, §1). Depois deste leitor, o express.json abaixo ignora a requisição.
+app.use(['/api/v1/captura/eventos', '/api/captura/eventos'], corpoCruDosEventos);
 // express.json com captura do corpo CRU (req.rawBody) — necessário para validar
 // HMAC de webhooks sobre os bytes EXATOS recebidos (ex.: ZapSign, req 19). O
 // req.body segue populado normalmente; os demais parsers/handlers não mudam.
@@ -196,6 +199,15 @@ import('./jobs/atestadoPendenciaChecker.js')
   })
   .catch((error) => {
     logger.error('Failed to initialize atestado pendência checker', error);
+  });
+
+// Captura de Demandas (E-10): reenvia ao Flow o contrato sem flowRecordId (always active — no Redis)
+import('./jobs/contratoEspelhoChecker.js')
+  .then(({ initializeContratoEspelhoChecker }) => {
+    initializeContratoEspelhoChecker();
+  })
+  .catch((error) => {
+    logger.error('Failed to initialize contrato espelho checker', error);
   });
 
 // Parceiros (PRM): lembretes/expiração/score/digest (always active — no Redis)
@@ -332,6 +344,11 @@ import atestadoRoutes from './routes/atestados.js';
 // Gestão de Parceiros Comerciais (PRM): lado interno + Portal do Parceiro
 import parceiroRoutes from './routes/parceiros.js';
 import portalParceiroRoutes from './routes/portalParceiro.js';
+// Captura de Demandas: rotas de máquina (chave ou HMAC) e rotas de tela (sessão)
+import capturaRoutes, { corpoCruDosEventos } from './routes/captura.js';
+import contratosApiRoutes from './routes/contratos.js';
+import gestaoContratosRoutes from './routes/gestaoContratos.js';
+import capturaRelatorioRoutes from './routes/capturaRelatorio.js';
 // scaffolding anchor — do not remove (plop injects route imports below)
 // plop:import-route
 
@@ -433,6 +450,10 @@ v1Router.use('/phone', csrfProtection);
 v1Router.use('/atestados', csrfProtection);
 v1Router.use('/parceiros', csrfProtection);
 v1Router.use('/portal-parceiro', csrfProtection);
+// Captura de Demandas: telas passam por CSRF. `/captura` e `/contratos` são de máquina,
+// autenticadas por chave ou HMAC, e ficam FORA do CSRF de propósito (spec, Restrições).
+v1Router.use('/gestao-contratos', csrfProtection);
+v1Router.use('/captura-relatorio', csrfProtection);
 // Upgrade RD P3: `/contacts` (resolução por telefone p/ a extensão Chrome, req 24)
 // autentica por `X-API-Key` (não sessão/cookie) → FORA do CSRF, como `/zapier`.
 // NÃO adicionar csrfProtection aqui.
@@ -522,6 +543,11 @@ v1Router.use('/portal-parceiro', portalParceiroRoutes);
 // Contatos — resolução por telefone p/ a extensão Chrome (Upgrade RD P3, req 24).
 // API-key auth (X-API-Key), sem sessão/CSRF (fora da whitelist acima).
 v1Router.use('/contacts', contactRoutes);
+// Captura de Demandas (spec captura-demandas, filha 02).
+v1Router.use('/captura', capturaRoutes);
+v1Router.use('/contratos', contratosApiRoutes);
+v1Router.use('/gestao-contratos', gestaoContratosRoutes);
+v1Router.use('/captura-relatorio', capturaRelatorioRoutes);
 // scaffolding anchor — do not remove
 // plop:mount
 

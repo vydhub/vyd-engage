@@ -1,3 +1,5 @@
+import type { DemandaDoNegocio } from './captura';
+
 // Tipos compartilhados do sistema
 
 // Aligned with Prisma UserRole enum (hierarquia ADMIN > GESTOR > USER > VIEWER)
@@ -433,6 +435,8 @@ export interface Deal {
   aiScoreUpdatedAt?: string | null;
   /** Stored top factors for the AI score (shape: { label, detail }). */
   aiScoreFactors?: DealAIScoreFactor[] | null;
+  /** Presente quando o Negócio veio da Captura: o andamento é do Flow (E-16). */
+  demanda?: DemandaDoNegocio | null;
   createdAt: string;
   updatedAt: string;
 }

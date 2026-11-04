@@ -69,6 +69,7 @@ const STRICT_SCOPE = new Set([
   // arquivos novos nascem 100% tokenizados.
   'src/components/companies/CompanyBadges.tsx',
   'src/components/companies/ContractCard.tsx',
+  'src/components/companies/SaldoContrato.tsx',
   'src/components/companies/ExpiringContractsWidget.tsx',
   'src/components/settings/FollowUpSettingsTab.tsx',
   // Upgrade RD parity — P0 (spec upgrade-rd-parity): arquivos novos nascem
@@ -132,6 +133,11 @@ const STRICT_SCOPE = new Set([
   'src/components/parceiros/PortalComissoes.tsx',
   'src/components/parceiros/PortalMetasReunioes.tsx',
   'src/components/parceiros/PortalDocumentos.tsx',
+  // Captura de Demandas — telas novas, 100% tokenizadas.
+  'src/pages/Contratos.tsx',
+  'src/pages/CapturaRelatorio.tsx',
+  'src/components/companies/ContratosDaEmpresa.tsx',
+  'src/components/deals/AvisoFlow.tsx',
 ]);
 const STRICT_FAMILIES =
   /\b(?:bg|text|border|ring|from|to|via|divide|placeholder|fill|stroke|decoration|outline|accent)-(?:gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b|\b(?:bg|text|border|ring|fill|stroke)-(?:white|black)\b/;

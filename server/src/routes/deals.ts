@@ -1,7 +1,11 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import multer from 'multer';
-import { dealService } from '../services/dealService.js';
+import {
+  dealService,
+  recusarAndamentoManual,
+  valorControladoPeloFlow,
+} from '../services/dealService.js';
 import { forecastService } from '../services/forecastService.js';
 import { getDealNextAction, getActionSummary } from '../services/nextActionService.js';
 import { dealScoringService } from '../services/dealScoringService.js';
@@ -11,7 +15,7 @@ import { tenantScope } from '../middleware/tenant.js';
 import { aiLimiter } from '../middleware/rateLimit.js';
 import { createError } from '../middleware/errorHandler.js';
 import { visibilityScope, getEffective } from '../services/permissionService.js';
-import { DealStage } from '@prisma/client';
+import { DealStage, type Deal } from '@prisma/client';
 import prisma from '../config/database.js';
 import { createAuditLog } from '../utils/auditLogger.js';
 import { dispatchTrigger } from '../jobs/automationEngine.js';
@@ -685,6 +689,12 @@ router.put('/:id', async (req, res, next) => {
 
     const body = req.body;
     if (body.stage === 'LOST' && !body.lostReason) {
+      // E-16: em Negócio da Captura a recusa é a da via única, não a falta do motivo.
+      const controlado = await prisma.demanda.findFirst({
+        where: { tenantId: req.user.tenantId, dealId: req.params.id },
+        select: { id: true },
+      });
+      if (controlado) recusarAndamentoManual();
       return res
         .status(400)
         .json({ error: 'Informe o motivo da perda (lostReason) ao marcar um deal como perdido.' });
@@ -715,26 +725,30 @@ router.put('/:id', async (req, res, next) => {
       where: { id: req.params.id, tenantId: req.user.tenantId },
     });
 
-    const deal = await dealService.update(req.user.tenantId, data);
+    const leitura: { antes?: Deal } = {};
+    const deal = await dealService.update(req.user.tenantId, data, leitura);
+    // Negócio da Captura: auditoria e gatilho comparam com o estado lido sob a trava da demanda,
+    // para registrar só o que a edição mudou, e nunca o que um evento do Flow mudou no meio.
+    const anterior = deal.demanda && leitura.antes ? leitura.antes : existing;
 
     // Fire audit log asynchronously — must not block the response
-    if (existing) {
+    if (anterior) {
       createAuditLog({
         tenantId: req.user.tenantId,
         entityType: 'deal',
         entityId: req.params.id,
         userId: req.user.userId,
         action: 'update',
-        oldData: existing as Record<string, unknown>,
+        oldData: anterior as Record<string, unknown>,
         newData: deal as Record<string, unknown>,
       }).catch(() => {});
 
-      if (existing.stage !== deal.stage) {
+      if (anterior.stage !== deal.stage) {
         dispatchTrigger(
           req.user.tenantId,
           'deal_stage_changed',
           deal.leadId ?? undefined,
-          { dealId: deal.id, dealName: deal.name, fromStage: existing.stage, toStage: deal.stage },
+          { dealId: deal.id, dealName: deal.name, fromStage: anterior.stage, toStage: deal.stage },
           deal.id
         ).catch(() => {});
       }
@@ -894,6 +908,14 @@ router.delete('/:id', async (req, res, next) => {
       return next(createError('Authentication required', 401));
     }
 
+    // E-16: Negócio da Captura não é excluído à mão, nem por aprovação. Recusa antes de
+    // abrir uma solicitação que não poderia ser executada.
+    const controlado = await prisma.demanda.findFirst({
+      where: { tenantId: req.user.tenantId, dealId: req.params.id },
+      select: { id: true },
+    });
+    if (controlado) recusarAndamentoManual();
+
     // Gate de exclusão (req 16): sem permissão OU perfil exige aprovação → cria
     // solicitação (não deleta) + 202. Sem perfil custom → deleta direto (== hoje).
     const gate = await approvalService.deleteGate(
@@ -953,6 +975,18 @@ router.get('/:id/products', async (req, res, next) => {
   }
 });
 
+/** Soma dos itens do Negócio, a mesma conta do recálculo de `Deal.value` pelos produtos. */
+async function totalDosItens(
+  cliente: Pick<typeof prisma, 'dealProduct'>,
+  dealId: string
+): Promise<number> {
+  const itens = await cliente.dealProduct.findMany({ where: { dealId } });
+  const total = itens.reduce((soma, i) => {
+    return soma + Number(i.quantity) * Number(i.unitPrice) * (1 - Number(i.discount) / 100);
+  }, 0);
+  return Math.round(total * 100) / 100;
+}
+
 // POST /api/deals/:id/products - Add a product to deal
 router.post('/:id/products', async (req, res, next) => {
   try {
@@ -971,8 +1005,36 @@ router.post('/:id/products', async (req, res, next) => {
     const body = schema.parse(req.body);
 
     // Verify deal belongs to tenant
-    const deal = await prisma.deal.findFirst({ where: { id: dealId, tenantId, deletedAt: null } });
+    const deal = await prisma.deal.findFirst({
+      where: { id: dealId, tenantId, deletedAt: null },
+      include: { demanda: { select: { valorEnviado: true, valorAprovado: true } } },
+    });
     if (!deal) return next(createError('Deal not found', 404));
+    // Os produtos recalculam Deal.value, que nesse caso só muda por evento do Flow (E-15, E-16).
+    if (valorControladoPeloFlow(deal.demanda)) recusarAndamentoManual();
+
+    if (deal.demanda) {
+      // Negócio da Captura sem valor do Flow: o total dos produtos é o valor fora do Flow. Uma
+      // transação que começa travando a demanda e grava item, total e valor: se um evento trouxe
+      // valor do Flow antes, a resposta é 403 e o item volta.
+      const { escreverNoNegocioDaDemanda, registrarValorForaDoFlow } =
+        await import('../services/captura/demandaService.js');
+      const item = await escreverNoNegocioDaDemanda(tenantId, dealId, async (tx) => {
+        const criado = await tx.dealProduct.create({
+          data: {
+            dealId,
+            productId: body.productId,
+            quantity: body.quantity,
+            unitPrice: body.unitPrice,
+            discount: body.discount,
+          },
+          include: { product: true },
+        });
+        await registrarValorForaDoFlow(tx, tenantId, dealId, () => totalDosItens(tx, dealId));
+        return criado;
+      });
+      return res.status(201).json({ status: 201, data: item });
+    }
 
     const item = await prisma.dealProduct.create({
       data: {
@@ -1014,11 +1076,27 @@ router.delete('/:id/products/:dealProductId', async (req, res, next) => {
     const { tenantId } = req.user;
 
     // Verify deal belongs to tenant
-    const deal = await prisma.deal.findFirst({ where: { id: dealId, tenantId, deletedAt: null } });
+    const deal = await prisma.deal.findFirst({
+      where: { id: dealId, tenantId, deletedAt: null },
+      include: { demanda: { select: { valorEnviado: true, valorAprovado: true } } },
+    });
     if (!deal) return next(createError('Deal not found', 404));
+    if (valorControladoPeloFlow(deal.demanda)) recusarAndamentoManual();
 
     const existing = await prisma.dealProduct.findFirst({ where: { id: dealProductId, dealId } });
     if (!existing) return next(createError('Line item not found', 404));
+
+    if (deal.demanda) {
+      // Negócio da Captura: como ao incluir, numa transação que começa travando a demanda. Com
+      // valor do Flow informado antes, a resposta é 403 e o item fica.
+      const { escreverNoNegocioDaDemanda, registrarValorForaDoFlow } =
+        await import('../services/captura/demandaService.js');
+      await escreverNoNegocioDaDemanda(tenantId, dealId, async (tx) => {
+        await tx.dealProduct.delete({ where: { id: dealProductId } });
+        await registrarValorForaDoFlow(tx, tenantId, dealId, () => totalDosItens(tx, dealId));
+      });
+      return res.status(204).send();
+    }
 
     await prisma.dealProduct.delete({ where: { id: dealProductId } });
 

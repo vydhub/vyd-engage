@@ -436,7 +436,12 @@ export const roadmapService = {
 
     // 2. Reusar (mover para PROPOSAL) ou criar um novo Deal em PROPOSAL.
     if (deal) {
-      if (deal.stage !== DealStage.PROPOSAL) {
+      // Negócio da Captura só anda pelo Flow (E-16): vincula ao roadmap sem mover a etapa.
+      const controlado = await prisma.demanda.findFirst({
+        where: { tenantId, dealId: deal.id },
+        select: { id: true },
+      });
+      if (deal.stage !== DealStage.PROPOSAL && !controlado) {
         deal = await dealService.update(tenantId, { id: deal.id, stage: DealStage.PROPOSAL });
       }
     } else {

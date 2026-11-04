@@ -74,6 +74,14 @@ const SCOPE_GROUPS: { resource: string; scopes: { value: string; label: string }
     resource: 'Webhooks',
     scopes: [{ value: 'webhooks:manage', label: 'Gerenciar' }],
   },
+  {
+    resource: 'Contratos',
+    scopes: [{ value: 'contracts:read', label: 'Ler' }],
+  },
+  {
+    resource: 'Radar',
+    scopes: [{ value: 'captura:write', label: 'Escrever' }],
+  },
 ];
 
 const SCOPE_LABELS: Record<string, string> = {
@@ -86,6 +94,8 @@ const SCOPE_LABELS: Record<string, string> = {
   'contacts:read': 'Contatos: Ler',
   'reports:read': 'Relatórios: Ler',
   'webhooks:manage': 'Webhooks: Gerenciar',
+  'contracts:read': 'Contratos: Ler',
+  'captura:write': 'Radar: Escrever',
 };
 
 export function ApiKeys() {

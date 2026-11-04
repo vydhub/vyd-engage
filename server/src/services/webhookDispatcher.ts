@@ -24,9 +24,14 @@ import { flattenLeadData, flattenDealData, flattenTaskData } from '../utils/webh
 
 export interface OutgoingWebhookPayload {
   event: string;
-  tenantId: string;
+  tenantId?: string;
   timestamp: string;
   data: Record<string, unknown>;
+}
+
+/** Eventos do espelho de contratos para o Flow (spec captura-demandas, E-10). */
+function ehEventoDeEspelho(event: string): boolean {
+  return event.startsWith('contract.');
 }
 
 export function buildOutgoingPayload(
@@ -34,7 +39,10 @@ export function buildOutgoingPayload(
   event: string,
   data: Record<string, unknown>
 ): OutgoingWebhookPayload {
-  return { event, tenantId, timestamp: new Date().toISOString(), data };
+  const timestamp = new Date().toISOString();
+  // O contrato do espelho (06, §3) fixa o envelope em { event, timestamp, data }.
+  if (ehEventoDeEspelho(event)) return { event, timestamp, data };
+  return { event, tenantId, timestamp, data };
 }
 
 /**
@@ -51,6 +59,8 @@ interface DeliveryJobData {
   tenantId: string;
   event: string;
   payload: OutgoingWebhookPayload;
+  /** O mesmo em todas as tentativas, para o destino reconhecer uma repetição. */
+  deliveryId: string;
 }
 
 const MAX_LOGS_PER_WEBHOOK = 100; // req 14
@@ -80,6 +90,47 @@ async function pruneLogs(webhookId: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Espelho de contratos (E-10): o Flow devolve o id do registro, e o Engage grava.
+// ---------------------------------------------------------------------------
+
+/**
+ * Se uma entrega anterior já trouxe o id do Flow, a seguinte vai com ele. O evento
+ * enfileirado antes da resposta não recria o registro no Flow.
+ */
+async function comFlowRecordIdAtual(job: DeliveryJobData): Promise<OutgoingWebhookPayload> {
+  const { data } = job.payload;
+  if (!ehEventoDeEspelho(job.event) || data.flow_record_id || typeof data.id !== 'string') {
+    return job.payload;
+  }
+  const contrato = await prisma.contrato.findFirst({
+    where: { id: data.id, tenantId: job.tenantId },
+    select: { flowRecordId: true },
+  });
+  if (!contrato?.flowRecordId) return job.payload;
+  return { ...job.payload, data: { ...data, flow_record_id: contrato.flowRecordId } };
+}
+
+/** Grava `flow_record_id` da resposta só quando o contrato ainda não tem um. Nunca lança. */
+async function gravarFlowRecordId(job: DeliveryJobData, respostaTexto: string): Promise<void> {
+  try {
+    const contratoId = job.payload.data.id;
+    if (typeof contratoId !== 'string') return;
+    const flowRecordId = (JSON.parse(respostaTexto) as { flow_record_id?: unknown }).flow_record_id;
+    if (typeof flowRecordId !== 'string' || flowRecordId === '') return;
+    await prisma.contrato.updateMany({
+      where: { id: contratoId, tenantId: job.tenantId, flowRecordId: null },
+      data: { flowRecordId },
+    });
+  } catch (err: any) {
+    logger.warn('Não foi possível gravar o flow_record_id devolvido pelo Flow', {
+      webhookId: job.webhookId,
+      event: job.event,
+      error: err?.message,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // HTTP delivery — performs a single POST attempt and records the result.
 // Returns the HTTP status (or throws to trigger a BullMQ retry).
 // ---------------------------------------------------------------------------
@@ -91,7 +142,7 @@ async function deliverOnce(job: DeliveryJobData, attempts: number): Promise<void
   // Webhook deleted/deactivated between enqueue and delivery — drop silently.
   if (!webhook) return;
 
-  const body = JSON.stringify(job.payload);
+  const body = JSON.stringify(await comFlowRecordIdAtual(job));
   const signature = computeSignature(webhook.secret, body);
 
   const startTime = Date.now();
@@ -101,7 +152,10 @@ async function deliverOnce(job: DeliveryJobData, attempts: number): Promise<void
       headers: {
         'Content-Type': 'application/json',
         'X-VYD-Signature': signature, // req 12
+        // Mesmos cabeçalhos do "testar webhook"; o Flow confere X-Webhook-Signature (06, §1).
+        'X-Webhook-Signature': signature,
         'X-Webhook-Event': job.event,
+        'X-Webhook-Delivery-Id': job.deliveryId,
       },
       body,
       signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
@@ -133,9 +187,13 @@ async function deliverOnce(job: DeliveryJobData, attempts: number): Promise<void
     });
     await pruneLogs(webhook.id);
 
+    if (success && ehEventoDeEspelho(job.event)) {
+      await gravarFlowRecordId(job, responseText);
+    }
+
     if (!success) {
       // Non-2xx → throw so BullMQ retries (req 13). Inline path catches this.
-      throw new Error(`Webhook responded ${statusCode}`);
+      throw Object.assign(new Error(`Webhook responded ${statusCode}`), { statusCode });
     }
   } catch (error: any) {
     // Network error / timeout / non-2xx re-thrown above.
@@ -268,6 +326,7 @@ async function dispatch(
         tenantId,
         event,
         payload,
+        deliveryId: crypto.randomUUID(),
       };
 
       if (q) {
@@ -297,6 +356,59 @@ async function dispatch(
     // Never let dispatcher errors propagate to callers (req 16 + Redis-down edge).
     logger.error('Webhook dispatcher error', { tenantId, event, error: error?.message });
   }
+}
+
+/** Resultado de uma entrega aguardada, por webhook assinante do evento. */
+export interface ResultadoEntrega {
+  webhookId: string;
+  ok: boolean;
+  /** Código HTTP da resposta, quando houve resposta. */
+  status?: number;
+  erro?: string;
+}
+
+/** Só os webhooks cuja URL termina com um destes sufixos. */
+export interface FiltroDeEntrega {
+  urlTerminaEm?: string[];
+}
+
+/**
+ * Entrega agora e devolve o resultado, sem a fila: a semeadura desconecta logo depois, e a
+ * rotina do espelho precisa saber o que falhou. Nunca lança. A falha também fica em WebhookLog.
+ */
+async function entregarEAguardar(
+  tenantId: string,
+  event: string,
+  data: Record<string, unknown>,
+  filtro: FiltroDeEntrega = {}
+): Promise<ResultadoEntrega[]> {
+  const webhooks = await prisma.webhook.findMany({
+    where: {
+      tenantId,
+      active: true,
+      events: { has: event },
+      ...(filtro.urlTerminaEm
+        ? { OR: filtro.urlTerminaEm.map((sufixo) => ({ url: { endsWith: sufixo } })) }
+        : {}),
+    },
+    select: { id: true },
+  });
+  const payload = buildOutgoingPayload(tenantId, event, data);
+  const resultados: ResultadoEntrega[] = [];
+  for (const webhook of webhooks) {
+    try {
+      await deliverOnce(
+        { webhookId: webhook.id, tenantId, event, payload, deliveryId: crypto.randomUUID() },
+        1
+      );
+      resultados.push({ webhookId: webhook.id, ok: true });
+    } catch (err) {
+      const erro = err instanceof Error ? err.message : 'falha';
+      const status = (err as { statusCode?: number }).statusCode;
+      resultados.push({ webhookId: webhook.id, ok: false, erro, ...(status ? { status } : {}) });
+    }
+  }
+  return resultados;
 }
 
 // ---------------------------------------------------------------------------
@@ -332,5 +444,15 @@ export const webhookDispatcher = {
   /** Emit a generic event with arbitrary data. */
   emit(tenantId: string, event: string, data: Record<string, unknown>): void {
     dispatch(tenantId, event, data).catch(() => {});
+  },
+
+  /** Como `emit`, mas entrega agora e devolve o resultado de cada webhook. */
+  emitirEAguardar(
+    tenantId: string,
+    event: string,
+    data: Record<string, unknown>,
+    filtro?: FiltroDeEntrega
+  ): Promise<ResultadoEntrega[]> {
+    return entregarEAguardar(tenantId, event, data, filtro);
   },
 };

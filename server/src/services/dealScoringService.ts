@@ -98,7 +98,8 @@ async function buildDealMetrics(
       select: { createdAt: true },
     }),
     prisma.dealStageHistory.findFirst({
-      where: { dealId, stage: deal.stage, exitedAt: null },
+      // Sem filtrar por etapa: em Negócio da Captura o histórico guarda o estado M-04.
+      where: { dealId, exitedAt: null },
       orderBy: { enteredAt: 'desc' },
       select: { enteredAt: true },
     }),

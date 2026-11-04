@@ -24,6 +24,8 @@ import {
   CheckCircle,
   Award,
   Trash2,
+  FileText,
+  ClipboardList,
   type LucideIcon,
 } from 'lucide-react';
 import type { Capability } from '@/types/governance';
@@ -62,6 +64,7 @@ export const categories: NavCategory[] = [
       { icon: LayoutDashboard, label: 'Dashboard', path: '/app', tourId: 'sidebar-dashboard' },
       { icon: Users, label: 'Leads', path: '/app/leads', tourId: 'sidebar-leads' },
       { icon: Building2, label: 'Empresas', path: '/app/companies', tourId: 'sidebar-companies' },
+      { icon: FileText, label: 'Contratos', path: '/app/contratos', tourId: 'sidebar-contratos' },
       { icon: Handshake, label: 'Deals', path: '/app/deals', tourId: 'sidebar-deals' },
       { icon: GitBranch, label: 'Pipeline', path: '/app/pipeline', tourId: 'sidebar-pipeline' },
       { icon: CheckSquare, label: 'Tarefas', path: '/app/tasks', tourId: 'sidebar-tasks' },
@@ -90,6 +93,12 @@ export const categories: NavCategory[] = [
       { icon: TrendingUp, label: 'Previsão', path: '/app/forecast', tourId: 'sidebar-forecast' },
       { icon: Filter, label: 'Funil Conv.', path: '/app/funnel', tourId: 'sidebar-funnel' },
       { icon: BarChart3, label: 'Relatórios', path: '/app/reports', tourId: 'sidebar-reports' },
+      {
+        icon: ClipboardList,
+        label: 'Radar',
+        path: '/app/reports/captura',
+        tourId: 'sidebar-captura',
+      },
       {
         icon: TrendingUp,
         label: 'Performance',

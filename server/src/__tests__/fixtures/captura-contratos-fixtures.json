@@ -1,0 +1,221 @@
+{
+  "hmac_vetor": {
+    "segredo": "segredo-de-teste",
+    "timestamp": "1700000000",
+    "corpo": "{\"evento_id\":\"11111111-1111-4111-8111-111111111111\",\"valor\":1.5}",
+    "assinatura": "sha256=cd730ebbc35244eb5f026baee60382ce034f754ea9ea3593051db5e79bf26348"
+  },
+  "engage_criar_demanda": {
+    "chave_dedup": "email:<AM0PR01MB1234@exemplo.com>",
+    "id_captura": "22222222-2222-4222-8222-222222222222",
+    "cenario": "chamado_lta",
+    "fonte": "chamados@",
+    "nivel": 1,
+    "recebido_em_origem": "2026-11-20T13:58:00Z",
+    "capturado_em": "2026-11-20T14:00:10Z",
+    "cliente_id": "33333333-3333-4333-8333-333333333333",
+    "contrato_id": "44444444-4444-4444-8444-444444444444",
+    "objeto": "Orçamento para troca de bomba na unidade Norte",
+    "valor_estimado": 85000.00,
+    "flow_card_id": null,
+    "link_original": null,
+    "responsavel_email": "gerente@exemplo.com"
+  },
+  "engage_criar_demanda_resposta": {
+    "engage_id": "55555555-5555-4555-8555-555555555555",
+    "engage_link": "https://engage.vydhub.com/deals/55555555-5555-4555-8555-555555555555",
+    "repetido": false
+  },
+  "evento_estado": {
+    "tipo": "estado",
+    "evento_id": "66666666-6666-4666-8666-666666666666",
+    "chave_dedup": "email:<AM0PR01MB1234@exemplo.com>",
+    "flow_card_id": "77777777-7777-4777-8777-777777777777",
+    "estado": "orcamento_enviado",
+    "ocorrido_em": "2026-11-22T14:03:00Z",
+    "valor_enviado": 125000.00,
+    "valor_aprovado": null,
+    "motivo": null,
+    "autor_email": "pessoa@exemplo.com"
+  },
+  "evento_decisao_no_go": {
+    "tipo": "decisao",
+    "evento_id": "88888888-8888-4888-8888-888888888888",
+    "chave_dedup": "email:<AM0PR01MB1234@exemplo.com>",
+    "flow_card_id": "77777777-7777-4777-8777-777777777777",
+    "acao": "no_go",
+    "motivo": "Fora da região de atuação",
+    "encaminhamento": null,
+    "original_flow_card_id": null,
+    "cenario_novo": null,
+    "cliente_id": null,
+    "contrato_id": null,
+    "novo_flow_card_id": null,
+    "ocorrido_em": "2026-11-20T15:00:00Z",
+    "autor_email": "triador@exemplo.com"
+  },
+  "evento_decisao_resolver": {
+    "tipo": "decisao",
+    "evento_id": "99999999-9999-4999-8999-999999999999",
+    "chave_dedup": "email:<AM0PR01MB5678@exemplo.com>",
+    "flow_card_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "acao": "resolver",
+    "motivo": null,
+    "encaminhamento": null,
+    "original_flow_card_id": null,
+    "cenario_novo": "contrato_novo",
+    "cliente_id": "33333333-3333-4333-8333-333333333333",
+    "contrato_id": null,
+    "novo_flow_card_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    "ocorrido_em": "2026-11-20T15:10:00Z",
+    "autor_email": "triador@exemplo.com"
+  },
+  "evento_card_da_tela": {
+    "tipo": "card_da_tela",
+    "evento_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    "flow_card_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    "pipe": "chamado_lta",
+    "numero": 4821,
+    "titulo": "Plano de trabalho para a unidade Sul",
+    "criado_em": "2026-11-21T09:30:00Z",
+    "cliente_texto": null,
+    "contrato_flow_record_id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+    "responsavel_email": "comercial@exemplo.com",
+    "autor_email": "comercial@exemplo.com"
+  },
+  "evento_cliente_indicado": {
+    "tipo": "cliente_indicado",
+    "evento_id": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+    "chave_dedup": "flow:dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    "flow_card_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    "cliente_id": "33333333-3333-4333-8333-333333333333",
+    "ocorrido_em": "2026-11-21T10:00:00Z",
+    "autor_email": "comercial@exemplo.com"
+  },
+  "demanda_manual": {
+    "evento_id": "12121212-1212-4212-8212-121212121212",
+    "descricao": "Cliente pediu orçamento por telefone para a parada de dezembro",
+    "autor_email": "comercial@exemplo.com",
+    "autor_nome": "Pessoa Comercial",
+    "arquivos": [
+      { "nome": "pedido.pdf", "url": "https://flow.exemplo.com/storage/assinada", "tamanho": 204800 }
+    ]
+  },
+  "flow_criar_card": {
+    "chave_externa": "email:<AM0PR01MB1234@exemplo.com>",
+    "campos": {
+      "objeto": "Orçamento para troca de bomba na unidade Norte",
+      "numero_evento_cliente": "RFQ-2026-118",
+      "valor_estimado": 85000.00,
+      "recebido_em_origem": "2026-11-20T13:58:00Z",
+      "link_original": "https://sharepoint.exemplo.com/original.eml",
+      "disciplinas": ["Mecânica", "Elétrica"],
+      "contrato_flow_record_id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+    },
+    "prazo": "2026-11-24T17:00:00Z",
+    "responsavel_email": "gerente@exemplo.com",
+    "captura": { "id_captura": "22222222-2222-4222-8222-222222222222" }
+  },
+  "flow_criar_card_resposta": {
+    "card_id": "77777777-7777-4777-8777-777777777777",
+    "numero": 4822,
+    "link": "https://flow.vydhub.com/card/77777777-7777-4777-8777-777777777777",
+    "repetido": false,
+    "responsavel_atribuido": true,
+    "campos_recusados": [{ "campo": "disciplinas", "motivo": "registro não encontrado em Disciplinas: Elétrica" }]
+  },
+  "painel_captura": {
+    "id_captura": "22222222-2222-4222-8222-222222222222",
+    "chave_dedup": "email:<AM0PR01MB1234@exemplo.com>",
+    "cenario": "chamado_lta",
+    "fonte": "chamados@",
+    "nivel": 1,
+    "recebido_em_origem": "2026-11-20T13:58:00Z",
+    "capturado_em": "2026-11-20T14:00:10Z",
+    "objeto": "Orçamento para troca de bomba na unidade Norte",
+    "resumo": "Cliente pede orçamento para troca de bomba.",
+    "limiar": 0.85,
+    "campos": {
+      "objeto": { "valor": "Orçamento para troca de bomba", "confianca": 0.97, "trecho": "solicitamos orçamento para troca", "documento": "corpo", "pagina": null, "baixa_confianca": false },
+      "prazo_proposta": { "valor": "2026-11-24T17:00:00Z", "confianca": 0.62, "trecho": "até dia 24", "documento": "pedido.pdf", "pagina": 2, "baixa_confianca": true }
+    },
+    "link_original": "https://sharepoint.exemplo.com/original.eml",
+    "original_pendente": false,
+    "anexos": [{ "nome": "pedido.pdf", "url": "https://sharepoint.exemplo.com/pedido.pdf", "nao_lido": false }],
+    "cliente": { "id": "33333333-3333-4333-8333-333333333333", "nome": "Cliente Exemplo", "sugestoes": [], "dados_sugeridos": null },
+    "contrato": { "id": "44444444-4444-4444-8444-444444444444", "numero": "CT-0042", "saldo": 60000.00, "saldo_disponivel": true, "vigencia_fim": "2027-03-31", "candidatos": [] },
+    "alertas": [{ "tipo": "saldo_insuficiente", "mensagem": "Saldo de R$ 60.000,00 é menor que o valor estimado de R$ 85.000,00." }],
+    "nota_aderencia": null,
+    "prazos": { "prazo_proposta": "2026-11-24T17:00:00Z", "visita_tecnica": null, "prazo_esclarecimentos": null, "sla": "2026-11-24T17:00:00Z" },
+    "engage": { "id": null, "link": null },
+    "motivo_incerto": null,
+    "provavel_original": null
+  },
+  "contratos_lista": {
+    "itens": [
+      {
+        "id": "44444444-4444-4444-8444-444444444444",
+        "numero": "CT-0042",
+        "numero_cliente": "4600012345",
+        "tipo": "LTA",
+        "objeto": "Serviços de engenharia",
+        "escopo": "Mecânica e elétrica",
+        "vigencia_inicio": "2025-04-01",
+        "vigencia_fim": "2027-03-31",
+        "valor_contratado": 2000000.00,
+        "saldo": 60000.00,
+        "saldo_disponivel": true,
+        "sla_resposta_horas": 24,
+        "gerente_nome": "Gerente Exemplo",
+        "gerente_email": "gerente@exemplo.com",
+        "planejador_nome": null,
+        "planejador_email": null,
+        "flow_record_id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        "atualizado_em": "2026-11-01T10:00:00Z",
+        "excluido_em": null,
+        "cliente": { "id": "33333333-3333-4333-8333-333333333333", "nome": "Cliente Exemplo", "cnpj": "12345678000190", "dominio": "cliente.com.br" },
+        "solicitantes": [{ "nome": "Fiscal Exemplo", "email": "fiscal@cliente.com.br" }],
+        "itens": [{ "descricao": "Manutenção mecânica", "disciplina": "Mecânica" }]
+      }
+    ],
+    "proximo_cursor": null
+  },
+  "clientes_busca": {
+    "candidatos": [
+      { "id": "33333333-3333-4333-8333-333333333333", "nome": "Cliente Exemplo", "cnpj": "12345678000190", "dominio": "cliente.com.br", "motivo": "cnpj" }
+    ]
+  },
+  "espelho_contrato": {
+    "event": "contract.updated",
+    "timestamp": "2026-11-01T10:00:00Z",
+    "data": {
+      "id": "44444444-4444-4444-8444-444444444444",
+      "flow_record_id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      "codigo": "CT-0042",
+      "cliente": "Cliente Exemplo",
+      "gerente_nome": "Gerente Exemplo",
+      "gerente_email": "gerente@exemplo.com",
+      "planejador_nome": null,
+      "planejador_email": null,
+      "ativo": true
+    }
+  },
+  "calendario": {
+    "dias_uteis": [1, 2, 3, 4, 5],
+    "inicio": "08:00",
+    "fim": "18:00",
+    "fuso": "America/Sao_Paulo",
+    "excluir_feriados_nacionais": true,
+    "feriados_extras": []
+  },
+  "horas_uteis_casos": [
+    { "nome": "sexta 17h a segunda 9h", "de": "2026-11-13T20:00:00Z", "ate": "2026-11-16T12:00:00Z", "horas": 2 },
+    { "nome": "feriado nacional de 20/11 não conta", "de": "2026-11-20T12:00:00Z", "ate": "2026-11-20T18:00:00Z", "horas": 0 },
+    { "nome": "fora do expediente não conta", "de": "2026-11-17T22:00:00Z", "ate": "2026-11-18T10:00:00Z", "horas": 0 },
+    { "nome": "dia inteiro", "de": "2026-11-18T11:00:00Z", "ate": "2026-11-18T21:00:00Z", "horas": 10 }
+  ],
+  "console_envelope": {
+    "usuario": { "email": "config@exemplo.com", "papel": "configurador" },
+    "dados": { "versao_base": 3, "regras": { "limiar": { "cenario": 0.85 } } }
+  }
+}

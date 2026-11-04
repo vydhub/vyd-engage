@@ -41,6 +41,9 @@ const SELECTABLE_EVENTS = [
   'deal.lost',
   'task.completed',
   'automation.triggered',
+  'contract.created',
+  'contract.updated',
+  'contract.deleted',
 ];
 
 const EVENT_LABELS: Record<string, string> = {
@@ -53,6 +56,9 @@ const EVENT_LABELS: Record<string, string> = {
   'deal.lost': 'Deal perdido',
   'task.completed': 'Tarefa concluida',
   'automation.triggered': 'Automacao disparada',
+  'contract.created': 'Contrato criado',
+  'contract.updated': 'Contrato atualizado',
+  'contract.deleted': 'Contrato excluido',
 };
 
 export function WebhooksTab() {

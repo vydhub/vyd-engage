@@ -22,7 +22,8 @@ export const MAX_WEBHOOKS_PER_TENANT = 10;
 // Max delivery logs retained/returned per webhook (API-1.2 req 14).
 export const MAX_WEBHOOK_LOGS = 100;
 
-// Events selectable when creating a webhook (API-1.2 req 10) — exactly these 9.
+// Events selectable when creating a webhook (API-1.2 req 10), plus the contract mirror
+// events of the Captura de Demandas (E-10), which the Flow subscribes to.
 export const SELECTABLE_WEBHOOK_EVENTS = [
   'lead.created',
   'lead.updated',
@@ -33,6 +34,9 @@ export const SELECTABLE_WEBHOOK_EVENTS = [
   'deal.lost',
   'task.completed',
   'automation.triggered',
+  'contract.created',
+  'contract.updated',
+  'contract.deleted',
 ] as const;
 
 // Full emit vocabulary (superset — some events are emitted internally even if not
@@ -52,6 +56,9 @@ export const WEBHOOK_EVENTS = [
   'automation.triggered',
   'payment.approved',
   'payment.failed',
+  'contract.created',
+  'contract.updated',
+  'contract.deleted',
 ] as const;
 
 export const webhookService = {

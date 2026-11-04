@@ -2,6 +2,8 @@ import prisma from '../config/database.js';
 import { ClientStatus, CompanySize, ContractHolder, Prisma, TaskStatus } from '@prisma/client';
 import { createError } from '../middleware/errorHandler.js';
 import { logger } from '../utils/logger.js';
+import { contratoService } from './contratoService.js';
+import { SEM_DEMANDA_DESCARTADA } from './captura/estados.js';
 
 // Prefixo que identifica a tarefa de follow-up criada pelo job — usado tanto no
 // dedup do job quanto no filtro "follow-up pendente" da lista de Empresas.
@@ -56,7 +58,8 @@ export function startOfToday(): Date {
 const companyInclude = {
   assignedUser: { select: { id: true, name: true } },
   segment: { select: { id: true, name: true } },
-  _count: { select: { leads: true, deals: true } },
+  // Demanda descartada sai dos números comerciais (E-17); Negócio comum conta como antes.
+  _count: { select: { leads: true, deals: { where: SEM_DEMANDA_DESCARTADA } } },
 };
 
 // Segmento deve pertencer ao tenant (multi-tenant: nunca aceitar id de fora).
@@ -126,7 +129,8 @@ export const companyService = {
           orderBy: { createdAt: 'desc' },
         },
         deals: {
-          where: ownerId ? { assignedTo: ownerId } : {},
+          // Demanda descartada sai das telas comerciais (E-17); Negócio comum fica como antes.
+          where: { ...SEM_DEMANDA_DESCARTADA, ...(ownerId ? { assignedTo: ownerId } : {}) },
           select: {
             id: true,
             name: true,
@@ -159,7 +163,9 @@ export const companyService = {
           orderBy: { createdAt: 'desc' },
           take: 50,
         },
-        _count: { select: { leads: true, deals: true, interactions: true } },
+        _count: {
+          select: { leads: true, deals: { where: SEM_DEMANDA_DESCARTADA }, interactions: true },
+        },
       },
     });
 
@@ -313,7 +319,44 @@ export const companyService = {
       orderBy: { contractEndDate: 'asc' },
     });
 
-    return { companies, windowDays };
+    // E-08: contratos da entidade nova entram na lista. A empresa NOS cujo contrato já tem
+    // vencimento aparece só por ele, sem repetir o mesmo aviso pelos campos antigos.
+    const [contratos, comVencimento] = await Promise.all([
+      prisma.contrato.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+          vigenciaFim: { gte: today, lte: until },
+          company: { deletedAt: null },
+        },
+        select: {
+          id: true,
+          numero: true,
+          vigenciaFim: true,
+          company: {
+            select: { id: true, name: true, assignedUser: { select: { id: true, name: true } } },
+          },
+        },
+      }),
+      contratoService.empresasComVencimentoProprio(tenantId),
+    ]);
+
+    const linhas = [
+      ...companies
+        .filter((c) => !(c.contractHolder === ContractHolder.NOS && comVencimento.has(c.id)))
+        .map((c) => ({ ...c, contrato: null as { id: string; numero: string } | null })),
+      ...contratos.map((c) => ({
+        id: c.company.id,
+        name: c.company.name,
+        contractHolder: ContractHolder.NOS,
+        contractCompetitor: null,
+        contractEndDate: c.vigenciaFim,
+        assignedUser: c.company.assignedUser,
+        contrato: { id: c.id, numero: c.numero },
+      })),
+    ].sort((a, b) => (a.contractEndDate?.getTime() ?? 0) - (b.contractEndDate?.getTime() ?? 0));
+
+    return { companies: linhas, windowDays };
   },
 
   async update(tenantId: string, data: UpdateCompanyData) {
@@ -365,6 +408,14 @@ export const companyService = {
       include: companyInclude,
     });
 
+    // Os contratos levam dados do cliente (E-10, E-19). Nunca segura a edição.
+    const mudouNome = company.name !== existing.name;
+    if (mudouNome || company.cnpj !== existing.cnpj || company.domain !== existing.domain) {
+      void Promise.resolve()
+        .then(() => contratoService.empresaAlterada(tenantId, data.id, { espelhar: mudouNome }))
+        .catch((err) => logger.error('Falha ao propagar dados da empresa aos contratos', err));
+    }
+
     return company;
   },
 
@@ -399,9 +450,19 @@ export const companyService = {
     const linkedCount = await prisma.company.findFirst({
       where: { id, tenantId },
       include: {
-        _count: { select: { leads: true, deals: true } },
+        _count: {
+          select: { leads: true, deals: true, contratos: { where: { deletedAt: null } } },
+        },
       },
     });
+
+    if ((linkedCount?._count.contratos ?? 0) > 0) {
+      throw createError(
+        'Não é possível excluir empresa com contratos. Exclua os contratos primeiro.',
+        400,
+        'COMPANY_HAS_RELATIONS'
+      );
+    }
 
     if (linkedCount && (linkedCount._count.leads > 0 || linkedCount._count.deals > 0)) {
       throw createError(

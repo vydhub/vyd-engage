@@ -12,8 +12,18 @@ export function errorHandler(err: AppError, req: Request, res: Response, next: N
   const statusCode = err.statusCode || 500;
   const message = err.message || 'Internal Server Error';
 
+  // O erro do parser traz o texto recebido (em `body` e na mensagem), sem autenticação
+  // nenhuma: esse conteúdo não vai para o log nem para o Sentry. A resposta não muda.
+  const paraRegistro: AppError =
+    (err as AppError & { type?: string }).type === 'entity.parse.failed'
+      ? Object.assign(new Error('Corpo JSON malformado'), {
+          statusCode,
+          type: 'entity.parse.failed',
+        })
+      : err;
+
   // Log error
-  logger.error('Request error', err, {
+  logger.error('Request error', paraRegistro, {
     path: req.path,
     method: req.method,
     statusCode,
@@ -21,7 +31,7 @@ export function errorHandler(err: AppError, req: Request, res: Response, next: N
 
   // Capture in Sentry (only for server errors or important errors)
   if (statusCode >= 500 || !err.isOperational) {
-    captureException(err, {
+    captureException(paraRegistro, {
       path: req.path,
       method: req.method,
       statusCode,

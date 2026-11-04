@@ -67,6 +67,9 @@ const SELECTABLE_EVENTS = [
   'deal.lost',
   'task.completed',
   'automation.triggered',
+  'contract.created',
+  'contract.updated',
+  'contract.deleted',
 ];
 
 // Event label formatting
