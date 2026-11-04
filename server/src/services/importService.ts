@@ -489,7 +489,7 @@ export interface LeadImportOptions {
 }
 
 /** Normalize a person/company name for matching (case + whitespace folded). */
-function normalizeName(value?: string): string {
+export function normalizeName(value?: string): string {
   return (value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
@@ -1213,7 +1213,7 @@ interface MappedCompany {
 }
 
 /** Digits-only CNPJ for matching (formatting tolerated). */
-function normalizeCnpj(value?: string | null): string | undefined {
+export function normalizeCnpj(value?: string | null): string | undefined {
   const v = (value || '').replace(/\D/g, '');
   return v || undefined;
 }

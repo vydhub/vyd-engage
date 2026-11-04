@@ -16,6 +16,7 @@ import {
   LEAD_STATUS_LABELS,
   assertStatusReason,
 } from '../services/leadService.js';
+import { parseBrNumber, normalizeName, normalizeCnpj } from '../services/importService.js';
 import { notificationService } from '../services/notificationService.js';
 import prisma from '../config/database.js';
 import { createAuditLog } from '../utils/auditLogger.js';
@@ -874,7 +875,89 @@ router.delete('/:id', async (req, res, next) => {
 });
 
 // POST /api/leads/import - Bulk import leads from CSV data
-const importLeadSchema = z.object({
+
+/** Rótulos de tela da origem (iguais a LEAD_SOURCE_LABELS de src/types/index.ts). */
+const LEAD_SOURCE_LABELS_IMPORT: Record<LeadSource, string> = {
+  PROSPECCAO_ATIVA: 'Prospecção ativa',
+  PORTAL_NOTICIAS_LINKEDIN: 'Portal de Notícias/LinkedIn',
+  EVENTO_FEIRA_SETORIAL: 'Evento/Feira setorial',
+  NETWORKING_PESSOAL: 'Networking pessoal',
+  CLIENTE_RECORRENTE: 'Cliente recorrente',
+  INDICACAO_PARCEIROS: 'Indicação de parceiros',
+  OUTROS: 'Outros',
+};
+
+/** Sem acento, sem caixa, só letras e dígitos: "Em Andamento" == "EM_ANDAMENTO". */
+const dobrarCelula = (v: string) =>
+  v
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+
+/**
+ * Célula de enum da planilha: aceita o rótulo da tela, o código interno e o
+ * código LEGADO (normalizeLeadStatus/normalizeLeadSource — o modelo antigo
+ * trazia WEBSITE/NEW). Vazia = ausente (a rota assume o padrão); preenchida e
+ * não reconhecida = erro, que recusa SÓ a linha (ver rota abaixo).
+ */
+function celulaEnum<T extends string>(
+  coluna: string,
+  valores: Record<string, T>,
+  rotulos: Record<string, string>,
+  legado?: (v: unknown) => unknown
+) {
+  const mapa = new Map<string, T>();
+  for (const codigo of Object.values(valores)) {
+    mapa.set(dobrarCelula(codigo), codigo);
+    mapa.set(dobrarCelula(rotulos[codigo]), codigo);
+  }
+  return z
+    .preprocess(
+      (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+      z.string().optional()
+    )
+    .transform((v, ctx): T | undefined => {
+      if (v === undefined) return undefined;
+      const direto = mapa.get(dobrarCelula(v));
+      if (direto) return direto;
+      if (legado) {
+        const traduzido = legado(v.trim().toUpperCase().replace(/\s+/g, '_'));
+        if (typeof traduzido === 'string' && mapa.has(dobrarCelula(traduzido))) {
+          return mapa.get(dobrarCelula(traduzido));
+        }
+      }
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${coluna}: valor "${v}" não reconhecido`,
+      });
+      return z.NEVER;
+    });
+}
+
+const celulaTexto = (max?: number) =>
+  z
+    .string()
+    .optional()
+    .or(z.literal(''))
+    .transform((v) => v?.trim() || undefined)
+    .pipe(max ? z.string().max(max).optional() : z.string().optional());
+
+/** Célula numérica opcional: vazia = ausente; `converter` decide o resto. */
+const celulaNumero = (converter: (texto: string, ctx: z.RefinementCtx) => number | undefined) =>
+  z
+    .preprocess(
+      (v) => (typeof v === 'number' ? String(v) : v),
+      z.string().optional().or(z.literal(''))
+    )
+    .transform((v, ctx): number | undefined => {
+      if (!v || !v.trim()) return undefined;
+      return converter(v.trim(), ctx);
+    });
+
+// Exportado para o teste de contrato (importLeadPayload.test.ts) validar o
+// schema REAL da rota. As chaves novas seguem os títulos do modelo de planilha.
+export const importLeadSchema = z.object({
   name: z.string().min(1),
   email: z
     .string()
@@ -882,34 +965,158 @@ const importLeadSchema = z.object({
     .optional()
     .or(z.literal(''))
     .transform((v) => v || undefined),
-  phone: z
-    .string()
-    .optional()
-    .or(z.literal(''))
-    .transform((v) => v || undefined),
-  company: z
-    .string()
-    .optional()
-    .or(z.literal(''))
-    .transform((v) => v || undefined),
-  position: z
-    .string()
-    .optional()
-    .or(z.literal(''))
-    .transform((v) => v || undefined),
-  status: z.nativeEnum(LeadStatus).optional(),
-  source: z.nativeEnum(LeadSource).optional(),
-  notes: z
-    .string()
-    .optional()
-    .or(z.literal(''))
-    .transform((v) => v || undefined),
+  phone: celulaTexto(),
+  company: celulaTexto(),
+  position: celulaTexto(),
+  status: celulaEnum('status', LeadStatus, LEAD_STATUS_LABELS, normalizeLeadStatus),
+  source: celulaEnum('source', LeadSource, LEAD_SOURCE_LABELS_IMPORT, normalizeLeadSource),
+  notes: celulaTexto(),
+  company_cnpj: celulaTexto(),
+  contact_email: celulaTexto(),
+  contact_name: celulaTexto(),
+  status_reason: celulaEnum('status_reason', LeadStatusReason, LEAD_STATUS_REASON_LABELS),
+  status_reason_note: celulaTexto(2000),
+  estimated_value: celulaNumero((texto, ctx) => {
+    const n = parseBrNumber(texto);
+    if (n === undefined) {
+      // Só símbolo/espaço sobrou depois da limpeza = ausente; havendo dígito
+      // que não virou número, o valor está errado e a linha é recusada.
+      if (/\d/.test(texto)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `estimated_value: valor "${texto}" inválido`,
+        });
+        return z.NEVER;
+      }
+      return undefined;
+    }
+    if (n < 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'estimated_value: não pode ser negativo',
+      });
+      return z.NEVER;
+    }
+    return n;
+  }),
+  estimated_timeline: celulaTexto(500),
+  probability_go_get: celulaNumero((texto, ctx) => {
+    const n = /^\d{1,3}$/.test(texto) ? Number(texto) : NaN;
+    if (!(n >= 0 && n <= 100)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'probability_go_get: use um número inteiro de 0 a 100, sem "%"',
+      });
+      return z.NEVER;
+    }
+    return n;
+  }),
+  assigned_to_email: celulaTexto(),
 });
 
+// Cada linha é validada POR SI na rota: uma célula ruim recusa a linha, nunca
+// o arquivo (o array inteiro no Zod derrubava tudo com um 400).
 const importSchema = z.object({
-  leads: z.array(importLeadSchema).min(1).max(1000),
+  leads: z.array(z.unknown()).min(1).max(1000),
   skipDuplicateEmails: z.boolean().optional().default(true),
 });
+
+type ImportRow = z.infer<typeof importLeadSchema>;
+
+/** Primeira mensagem útil de um ZodError de linha. */
+function mensagemDaLinha(error: z.ZodError): string {
+  const issue = error.issues[0];
+  if (!issue) return 'Linha inválida';
+  const coluna = issue.path.join('.');
+  if (issue.code === z.ZodIssueCode.custom || !coluna) return issue.message;
+  if (coluna === 'name') return 'name: o nome é obrigatório';
+  if (coluna === 'email') return 'email: e-mail inválido';
+  return `${coluna}: ${issue.message}`;
+}
+
+/** Recusa de UMA linha por causa do conteúdo dela (não é o limite do plano). */
+class LinhaRecusada extends Error {}
+
+interface EmpresaResolvida {
+  id: string;
+  name: string;
+  fantasyName: string | null;
+  cnpj: string | null;
+}
+
+/** Resolve a empresa da linha. Devolve a empresa ou lança LinhaRecusada com o motivo. */
+function resolverEmpresa(row: ImportRow, empresas: EmpresaResolvida[]): EmpresaResolvida {
+  const cnpj = normalizeCnpj(row.company_cnpj);
+  const nome = row.company ? normalizeName(row.company) : undefined;
+  if (!cnpj && !nome) {
+    throw new LinhaRecusada('Empresa obrigatória: preencha company ou company_cnpj');
+  }
+  const porNome = nome
+    ? empresas.filter(
+        (e) =>
+          normalizeName(e.name) === nome || (e.fantasyName && normalizeName(e.fantasyName) === nome)
+      )
+    : [];
+  if (cnpj) {
+    const porCnpj = empresas.filter((e) => normalizeCnpj(e.cnpj) === cnpj);
+    if (porCnpj.length === 0) {
+      throw new LinhaRecusada(`Empresa não encontrada para o CNPJ ${row.company_cnpj}`);
+    }
+    if (porCnpj.length > 1) {
+      throw new LinhaRecusada(`O CNPJ ${row.company_cnpj} casa mais de uma empresa cadastrada`);
+    }
+    if (porNome.length > 0 && !porNome.some((e) => e.id === porCnpj[0].id)) {
+      throw new LinhaRecusada(
+        `company_cnpj (${row.company_cnpj}) e company ("${row.company}") apontam para empresas diferentes`
+      );
+    }
+    return porCnpj[0];
+  }
+  if (porNome.length === 0) throw new LinhaRecusada(`Empresa não encontrada: ${row.company}`);
+  if (porNome.length > 1) {
+    throw new LinhaRecusada(
+      `O nome "${row.company}" casa mais de uma empresa cadastrada; informe o CNPJ em company_cnpj`
+    );
+  }
+  return porNome[0];
+}
+
+interface ContatoResolvido {
+  id: string;
+  name: string;
+  email: string | null;
+  companyId: string | null;
+}
+
+function resolverContato(
+  row: ImportRow,
+  empresa: EmpresaResolvida,
+  contatos: ContatoResolvido[]
+): ContatoResolvido {
+  const email = row.contact_email?.toLowerCase();
+  const nome = row.contact_name ? normalizeName(row.contact_name) : undefined;
+  if (!email && !nome) {
+    throw new LinhaRecusada('Contato obrigatório: preencha contact_email ou contact_name');
+  }
+  const daEmpresa = contatos.filter((c) => c.companyId === empresa.id);
+  const achados = email
+    ? daEmpresa.filter((c) => c.email?.toLowerCase() === email)
+    : daEmpresa.filter((c) => normalizeName(c.name) === nome);
+  const chave = email ? `o e-mail ${row.contact_email}` : `o nome "${row.contact_name}"`;
+  if (achados.length === 0) {
+    throw new LinhaRecusada(
+      `Contato não encontrado: ${chave} não é de um contato da empresa ${empresa.name}`
+    );
+  }
+  if (achados.length > 1) {
+    throw new LinhaRecusada(
+      email
+        ? `${chave} casa mais de um contato da empresa ${empresa.name}`
+        : `${chave} casa mais de um contato da empresa ${empresa.name}; informe o e-mail em contact_email`
+    );
+  }
+  return achados[0];
+}
 
 // Enforcement de capability (req 13): importar exige `importData`. FAIL-CLOSED /
 // == HOJE: sem perfil custom, ADMIN/GESTOR/USER têm importData=true (a rota não
@@ -920,7 +1127,7 @@ router.post('/import', requirePermission('importData'), async (req, res, next) =
       return next(createError('Authentication required', 401));
     }
 
-    const { leads, skipDuplicateEmails } = importSchema.parse(req.body);
+    const { leads: linhas, skipDuplicateEmails } = importSchema.parse(req.body);
     const tenantId = req.user.tenantId;
 
     // Check plan limits
@@ -930,11 +1137,17 @@ router.post('/import', requirePermission('importData'), async (req, res, next) =
     let skipped = 0;
     const errors: Array<{ row: number; error: string }> = [];
 
+    // Validação POR LINHA: a linha ruim vai para `errors`, as outras seguem.
+    const validas: Array<{ i: number; data: ImportRow }> = [];
+    linhas.forEach((linha, i) => {
+      const parsed = importLeadSchema.safeParse(linha);
+      if (parsed.success) validas.push({ i, data: parsed.data });
+      else errors.push({ row: i + 1, error: mensagemDaLinha(parsed.error) });
+    });
+
     // Get existing emails for dedup
     let existingEmails = new Set<string>();
     if (skipDuplicateEmails) {
-      const prismaModule = await import('../config/database.js');
-      const prisma = prismaModule.default;
       const existing = await prisma.lead.findMany({
         where: { tenantId, email: { not: null }, deletedAt: null },
         select: { email: true },
@@ -943,18 +1156,62 @@ router.post('/import', requirePermission('importData'), async (req, res, next) =
         existing.map((l: { email: string | null }) => l.email!.toLowerCase())
       );
     }
+    const ehDuplicada = (d: ImportRow) =>
+      skipDuplicateEmails && !!d.email && existingEmails.has(d.email.toLowerCase());
 
-    for (let i = 0; i < leads.length; i++) {
-      const leadData = leads[i];
+    // Vínculos em LOTE (uma consulta por tipo, não uma por linha). Só o que as
+    // linhas válidas realmente pedem é consultado.
+    const empresas: EmpresaResolvida[] = validas.some((v) => v.data.company || v.data.company_cnpj)
+      ? await prisma.company.findMany({
+          where: { tenantId, deletedAt: null },
+          select: { id: true, name: true, fantasyName: true, cnpj: true },
+        })
+      : [];
+    const emailsResponsavel = validas.some((v) => v.data.assigned_to_email);
+    const responsaveis = emailsResponsavel
+      ? await prisma.user.findMany({ where: { tenantId }, select: { id: true, email: true } })
+      : [];
+    const idPorEmail = new Map(responsaveis.map((u) => [u.email.toLowerCase(), u.id]));
+    // Contatos só das empresas que alguma linha (não duplicada) resolve — uma consulta.
+    const idsEmpresa = new Set<string>();
+    for (const { data } of validas) {
+      if (ehDuplicada(data)) continue;
       try {
-        // Skip duplicate emails
-        if (
-          skipDuplicateEmails &&
-          leadData.email &&
-          existingEmails.has(leadData.email.toLowerCase())
-        ) {
+        idsEmpresa.add(resolverEmpresa(data, empresas).id);
+      } catch {
+        // a recusa dessa linha é registrada no laço abaixo
+      }
+    }
+    const contatos: ContatoResolvido[] = idsEmpresa.size
+      ? await prisma.lead.findMany({
+          where: {
+            tenantId,
+            isContact: true,
+            deletedAt: null,
+            companyId: { in: Array.from(idsEmpresa) },
+          },
+          select: { id: true, name: true, email: true, companyId: true },
+        })
+      : [];
+
+    for (const { i, data: leadData } of validas) {
+      try {
+        // Duplicata é decidida ANTES da resolução de vínculos: linha pulada não gasta busca.
+        if (ehDuplicada(leadData)) {
           skipped++;
           continue;
+        }
+
+        const empresa = resolverEmpresa(leadData, empresas);
+        const contato = resolverContato(leadData, empresa, contatos);
+        let assignedTo: string | undefined;
+        if (leadData.assigned_to_email) {
+          assignedTo = idPorEmail.get(leadData.assigned_to_email.toLowerCase());
+          if (!assignedTo) {
+            throw new LinhaRecusada(
+              `Responsável não encontrado: ${leadData.assigned_to_email} não é usuário desta conta`
+            );
+          }
         }
 
         await planLimitsService.enforceLimit(tenantId, 'leads');
@@ -964,21 +1221,30 @@ router.post('/import', requirePermission('importData'), async (req, res, next) =
           phone: leadData.phone,
           company: leadData.company,
           position: leadData.position,
+          companyId: empresa.id,
+          contactId: contato.id,
           status: leadData.status,
           source: leadData.source,
+          statusReason: leadData.status_reason,
+          statusReasonNote: leadData.status_reason_note,
+          estimatedValue: leadData.estimated_value,
+          estimatedTimeline: leadData.estimated_timeline,
+          probabilityGoGet: leadData.probability_go_get,
           notes: leadData.notes,
+          assignedTo,
         });
 
         if (leadData.email) existingEmails.add(leadData.email.toLowerCase());
         imported++;
       } catch (error: any) {
-        if (error.message?.includes('limit')) {
+        if (!(error instanceof LinhaRecusada) && error.message?.includes('limit')) {
           errors.push({ row: i + 1, error: 'Limite do plano atingido' });
           break;
         }
         errors.push({ row: i + 1, error: error.message || 'Erro desconhecido' });
       }
     }
+    errors.sort((a, b) => a.row - b.row);
 
     res.json({
       status: 200,
