@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { DataTable } from '../components/ui/data-table';
 import { getCompanyColumns } from '../components/companies/companyColumns';
@@ -107,6 +107,24 @@ export function Companies() {
   const [followUpPending, setFollowUpPending] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
+
+  // Link do Flow para criar o cliente na triagem (spec captura-demandas, E-20):
+  // /app/companies?novo=1&nome=&cnpj=&dominio= abre o formulário preenchido.
+  const [urlParams, setUrlParams] = useSearchParams();
+  const [valoresIniciais, setValoresIniciais] = useState<
+    { name?: string; cnpj?: string; domain?: string } | undefined
+  >(undefined);
+  useEffect(() => {
+    if (urlParams.get('novo') !== '1') return;
+    setValoresIniciais({
+      name: urlParams.get('nome') ?? undefined,
+      cnpj: urlParams.get('cnpj') ?? undefined,
+      domain: urlParams.get('dominio') ?? undefined,
+    });
+    setEditingCompany(null);
+    setFormOpen(true);
+    setUrlParams({}, { replace: true });
+  }, [urlParams, setUrlParams]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [companyToDelete, setCompanyToDelete] = useState<Company | null>(null);
 
@@ -216,6 +234,7 @@ export function Companies() {
     }
     setFormOpen(false);
     setEditingCompany(null);
+    setValoresIniciais(undefined);
   };
 
   const handleEdit = (company: Company) => {
@@ -442,6 +461,7 @@ export function Companies() {
           if (!open) {
             setFormOpen(false);
             setEditingCompany(null);
+            setValoresIniciais(undefined);
           }
         }}
       >
@@ -451,10 +471,12 @@ export function Companies() {
           </DialogHeader>
           <CompanyForm
             company={editingCompany}
+            valoresIniciais={editingCompany ? undefined : valoresIniciais}
             onSave={handleSave}
             onCancel={() => {
               setFormOpen(false);
               setEditingCompany(null);
+              setValoresIniciais(undefined);
             }}
           />
         </DialogContent>

@@ -61,13 +61,20 @@ export function ExpiringContractsWidget() {
             const daysLeft = civilDaysUntil(c.contractEndDate);
             return (
               <button
-                key={c.id}
+                key={c.contrato ? c.contrato.id : c.id}
                 type="button"
-                onClick={() => navigate(`/app/companies/${c.id}`)}
+                onClick={() =>
+                  navigate(
+                    c.contrato ? `/app/contratos?contrato=${c.contrato.id}` : `/app/companies/${c.id}`
+                  )
+                }
                 className="w-full p-4 flex items-center justify-between gap-3 text-left hover:bg-muted transition-colors"
               >
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">{c.name}</p>
+                  <p className="text-sm font-medium text-foreground truncate">
+                    {c.name}
+                    {c.contrato ? ` · ${c.contrato.numero}` : ''}
+                  </p>
                   <div className="mt-1">
                     <ContractHolderBadge
                       holder={c.contractHolder}

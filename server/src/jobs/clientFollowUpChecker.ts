@@ -2,6 +2,7 @@ import prisma from '../config/database.js';
 import { ClientStatus, ContractHolder, NotificationType } from '@prisma/client';
 import { notificationService } from '../services/notificationService.js';
 import { emitToTenant } from '../services/socketService.js';
+import { contratoService } from '../services/contratoService.js';
 import { logger } from '../utils/logger.js';
 import {
   FOLLOWUP_TASK_TITLE_PREFIX,
@@ -178,23 +179,46 @@ async function checkContractExpirations(tenant: { id: string; contractAlertDays:
   const today = startOfToday();
   let created = 0;
 
-  const companies = await prisma.company.findMany({
-    where: {
-      tenantId: tenant.id,
-      deletedAt: null,
-      contractHolder: { not: ContractHolder.NENHUM },
-      contractEndDate: { not: null },
-    },
-    select: {
-      id: true,
-      name: true,
-      assignedTo: true,
-      contractHolder: true,
-      contractCompetitor: true,
-      contractEndDate: true,
-    },
-  });
-  if (companies.length === 0) return 0;
+  // E-08: empresa NOS cujo contrato já tem vencimento é alertada por ele, não pelos campos dela.
+  const [companiesTodas, contratos] = await Promise.all([
+    prisma.company.findMany({
+      where: {
+        tenantId: tenant.id,
+        deletedAt: null,
+        contractHolder: { not: ContractHolder.NENHUM },
+        contractEndDate: { not: null },
+      },
+      select: {
+        id: true,
+        name: true,
+        assignedTo: true,
+        contractHolder: true,
+        contractCompetitor: true,
+        contractEndDate: true,
+      },
+    }),
+    prisma.contrato.findMany({
+      where: {
+        tenantId: tenant.id,
+        deletedAt: null,
+        vigenciaFim: { not: null },
+        company: { deletedAt: null },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        numero: true,
+        vigenciaFim: true,
+        company: { select: { id: true, name: true, assignedTo: true } },
+      },
+    }),
+  ]);
+  if (companiesTodas.length === 0 && contratos.length === 0) return 0;
+
+  const comVencimento = await contratoService.empresasComVencimentoProprio(tenant.id);
+  const companies = companiesTodas.filter(
+    (c) => !(c.contractHolder === ContractHolder.NOS && comVencimento.has(c.id))
+  );
 
   // Dedup por {companyId, threshold, contractEndDate} em TODO o histórico — sobrevive
   // a reinícios e não renotifica limiares já disparados; incluir a data de vencimento
@@ -204,9 +228,21 @@ async function checkContractExpirations(tenant: { id: string; contractAlertDays:
     select: { metadata: true },
   });
   const alreadyNotified = new Set<string>();
+  // Alerta dado por um contrato também vale para os campos da empresa: se o contrato for
+  // excluído, os campos não alertam de novo a mesma data e limiar.
+  const alertadosPorContrato = new Set<string>();
   for (const notif of existing) {
     const meta = notif.metadata as Record<string, unknown> | null;
-    if (meta?.companyId && meta?.threshold !== undefined) {
+    if (meta?.contratoId && meta?.threshold !== undefined) {
+      alreadyNotified.add(
+        `contrato:${meta.contratoId}:${meta.threshold}:${meta.contractEndDate ?? ''}`
+      );
+      if (meta.companyId) {
+        alertadosPorContrato.add(
+          `${meta.companyId}:${meta.threshold}:${meta.contractEndDate ?? ''}`
+        );
+      }
+    } else if (meta?.companyId && meta?.threshold !== undefined) {
       alreadyNotified.add(`${meta.companyId}:${meta.threshold}:${meta.contractEndDate ?? ''}`);
     }
   }
@@ -242,7 +278,7 @@ async function checkContractExpirations(tenant: { id: string; contractAlertDays:
     }
 
     const dedupKey = `${company.id}:${threshold}:${endDateKey}`;
-    if (alreadyNotified.has(dedupKey)) continue;
+    if (alreadyNotified.has(dedupKey) || alertadosPorContrato.has(dedupKey)) continue;
 
     // Dono da conta + admins/gestores (req 12).
     if (managers === null) {
@@ -263,6 +299,68 @@ async function checkContractExpirations(tenant: { id: string; contractAlertDays:
       companyName: company.name,
       contractHolder: company.contractHolder,
       contractCompetitor: company.contractCompetitor,
+      daysLeft,
+      threshold,
+    });
+
+    created++;
+  }
+
+  // E-08: contratos da entidade nova. A chave de dedup é por contrato, e o alerta já
+  // disparado pelos campos da empresa, para a mesma data e limiar, conta como dado para um
+  // único contrato: era um só, que antes morava em Company e depois da semeadura mora em
+  // Contrato. Outro contrato da empresa alerta normalmente. A ordem dos contratos é fixa, e
+  // por isso o mesmo fica silenciado em toda rodada.
+  for (const contrato of contratos) {
+    if (!contrato.vigenciaFim) continue;
+    const daysLeft = civilDaysBetween(today, contrato.vigenciaFim);
+    const endDateKey = contrato.vigenciaFim.toISOString().slice(0, 10);
+    const endDateLabel = contrato.vigenciaFim.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+
+    let threshold: number | typeof EXPIRED_THRESHOLD;
+    let title: string;
+    let message: string;
+    if (daysLeft < 0) {
+      threshold = EXPIRED_THRESHOLD;
+      title = `Contrato ${contrato.numero} (${contrato.company.name}) vencido`;
+      message = `O contrato ${contrato.numero} de "${contrato.company.name}" venceu em ${endDateLabel}.`;
+    } else {
+      const applicable = ascending.find((t) => daysLeft <= t);
+      if (applicable === undefined) continue;
+      threshold = applicable;
+      title = `Contrato ${contrato.numero} (${contrato.company.name}) vence em ${daysLeft} dias`;
+      message = `O contrato ${contrato.numero} de "${contrato.company.name}" vence em ${daysLeft} dias (${endDateLabel}). Hora de iniciar o aquecimento.`;
+    }
+
+    if (alreadyNotified.has(`contrato:${contrato.id}:${threshold}:${endDateKey}`)) continue;
+    if (alreadyNotified.delete(`${contrato.company.id}:${threshold}:${endDateKey}`)) continue;
+
+    if (managers === null) {
+      managers = await getTenantManagers(tenant.id);
+    }
+    const recipients = contrato.company.assignedTo
+      ? [contrato.company.assignedTo, ...managers]
+      : managers;
+
+    await notifyUsers(tenant.id, recipients, {
+      type: NotificationType.CONTRACT_EXPIRING,
+      title,
+      message,
+      link: `/app/contratos?contrato=${contrato.id}`,
+      metadata: {
+        contratoId: contrato.id,
+        companyId: contrato.company.id,
+        threshold,
+        contractEndDate: endDateKey,
+      },
+    });
+
+    emitToTenant(tenant.id, 'contract:expiring', {
+      companyId: contrato.company.id,
+      companyName: contrato.company.name,
+      contractHolder: ContractHolder.NOS,
+      contractCompetitor: null,
+      contratoId: contrato.id,
       daysLeft,
       threshold,
     });

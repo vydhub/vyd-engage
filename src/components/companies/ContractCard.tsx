@@ -17,6 +17,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { ContractExpiredBadge, ContractHolderBadge } from './CompanyBadges';
 import { RoadmapCreateDialog } from '../comercial/RoadmapCreateDialog';
+import { ContratosDaEmpresa, useContratosDaEmpresa } from './ContratosDaEmpresa';
 import { apiClient } from '../../services/api/client';
 import { Company, ContractHolder } from '../../types';
 
@@ -67,9 +68,18 @@ export function ContractCard({
 
   const holder = company.contractHolder ?? 'NENHUM';
   const hasContract = holder !== 'NENHUM' || !!company.contractEndDate;
-  const daysLeft = company.contractEndDate ? civilDaysUntil(company.contractEndDate) : null;
+  // E-08: empresa NOS cujo contrato já tem vencimento é acompanhada por ele, e a contagem
+  // regressiva dos campos antigos não repete o mesmo aviso.
+  const { data: contratos = [] } = useContratosDaEmpresa(company.id);
+  const vencimentoPeloContrato = holder === 'NOS' && contratos.some((c) => c.vigenciaFim);
+  const daysLeft =
+    company.contractEndDate && !vencimentoPeloContrato
+      ? civilDaysUntil(company.contractEndDate)
+      : null;
 
   return (
+    <>
+    <ContratosDaEmpresa companyId={company.id} />
     <div className="bg-card rounded-lg shadow-sm border border-border p-6 mb-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
@@ -153,6 +163,7 @@ export function ContractCard({
         onCreated={() => toast.success('Cadência de aquecimento iniciada!')}
       />
     </div>
+    </>
   );
 }
 

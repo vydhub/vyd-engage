@@ -47,15 +47,17 @@ function toDateInputValue(value?: string | null): string {
 
 interface CompanyFormProps {
   company?: Company | null;
+  /** Dados pré-preenchidos na criação, vindos do link do Flow (spec captura-demandas, E-20). */
+  valoresIniciais?: { name?: string; cnpj?: string; domain?: string };
   onSave: (data: Partial<Company>) => Promise<void>;
   onCancel: () => void;
 }
 
-export function CompanyForm({ company, onSave, onCancel }: CompanyFormProps) {
-  const [name, setName] = useState(company?.name || '');
+export function CompanyForm({ company, valoresIniciais, onSave, onCancel }: CompanyFormProps) {
+  const [name, setName] = useState(company?.name || valoresIniciais?.name || '');
   const [fantasyName, setFantasyName] = useState(company?.fantasyName || '');
-  const [cnpj, setCnpj] = useState(company?.cnpj || '');
-  const [domain, setDomain] = useState(company?.domain || '');
+  const [cnpj, setCnpj] = useState(company?.cnpj || valoresIniciais?.cnpj || '');
+  const [domain, setDomain] = useState(company?.domain || valoresIniciais?.domain || '');
   const [industry, setIndustry] = useState(company?.industry || '');
   const [size, setSize] = useState<CompanySize | ''>(company?.size || '');
 

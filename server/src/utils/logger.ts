@@ -11,6 +11,10 @@ const redactPaths = [
   // pino-http req/res serializers
   'req.headers.authorization',
   'req.headers.cookie',
+  // Chave de API e assinatura das integrações da Captura: nenhum segredo em log (spec-mãe).
+  'req.headers["x-api-key"]',
+  'req.headers["x-vyd-assinatura"]',
+  'req.headers["x-webhook-signature"]',
   'res.headers["set-cookie"]',
   // generic meta shapes used across services
   'headers.authorization',

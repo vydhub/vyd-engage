@@ -384,8 +384,15 @@ export const meetingService = {
       notes?: string;
     } = { id: dealId };
 
+    // Via única (E-16): valor e etapa da demanda vêm do Flow, e a sugestão da reunião fica de
+    // fora, sem derrubar o resto. Notas e tarefas continuam livres.
+    const daCaptura = !!(await prisma.demanda.findFirst({
+      where: { tenantId, dealId },
+      select: { id: true },
+    }));
+
     const fieldUpdates = input.fieldUpdates || {};
-    if (fieldUpdates.value !== undefined && suggestedKeys.has('value')) {
+    if (!daCaptura && fieldUpdates.value !== undefined && suggestedKeys.has('value')) {
       // Number('') === 0 e Number('   ') === 0 — uma string vazia/espaços passaria pelas
       // guardas num<0/!isFinite e gravaria 0 no deal silenciosamente. Rejeita ANTES de
       // coagir (mesmo code de "value inválido").
@@ -399,7 +406,7 @@ export const meetingService = {
       dealUpdate.value = num;
       updatedFields.push('value');
     }
-    if (fieldUpdates.stage !== undefined && suggestedKeys.has('stage')) {
+    if (!daCaptura && fieldUpdates.stage !== undefined && suggestedKeys.has('stage')) {
       const stage = fieldUpdates.stage as DealStage;
       if (!Object.values(DealStage).includes(stage)) {
         throw createError('Etapa sugerida inválida para o campo "stage".', 400, 'VALIDATION_ERROR');

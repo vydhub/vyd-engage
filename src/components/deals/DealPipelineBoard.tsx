@@ -88,9 +88,12 @@ function DraggableCard({
   onEdit: () => void;
   isStale?: boolean;
 }) {
+  // Via única (E-16): Negócio da Captura não muda de etapa pelo quadro.
+  const controlado = !!deal.demanda;
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: deal.id,
     data: { deal },
+    disabled: controlado,
   });
 
   return (
@@ -102,6 +105,9 @@ function DraggableCard({
       style={{ transition: 'opacity 200ms ease-out' }}
     >
       <DealCard deal={deal} onClick={onClick} onEdit={onEdit} isStale={isStale} />
+      {controlado && (
+        <p className="mt-1 px-1 text-xs text-muted-foreground">Andamento controlado pelo Flow</p>
+      )}
     </div>
   );
 }
@@ -127,6 +133,7 @@ function pipelineDealToDeal(d: PipelineDeal): Deal {
     status: d.status ?? null,
     qualification: d.qualification ?? null,
     taskCount: d._count?.tasks ?? 0,
+    demanda: d.demanda ?? null,
     createdAt: d.createdAt,
     updatedAt: d.updatedAt,
   };

@@ -26,13 +26,15 @@ interface DealProductsProps {
   dealId: string;
   currentValue: number;
   onValueChange: (v: number) => void;
+  /** O valor veio do Flow: os produtos ficam só para leitura (E-15, E-16). */
+  somenteLeitura?: boolean;
 }
 
 function computeLineTotal(qty: number, unitPrice: number, discount: number): number {
   return qty * unitPrice * (1 - discount / 100);
 }
 
-export function DealProducts({ dealId, onValueChange }: DealProductsProps) {
+export function DealProducts({ dealId, onValueChange, somenteLeitura = false }: DealProductsProps) {
   const queryClient = useQueryClient();
 
   // ── Editing state for inline add row ──
@@ -197,6 +199,7 @@ export function DealProducts({ dealId, onValueChange }: DealProductsProps) {
                     type="number"
                     min={1}
                     value={item.quantity}
+                    disabled={somenteLeitura}
                     onChange={(e) => handleUpdateItem(item, { quantity: Number(e.target.value) })}
                     className="w-16 rounded border border-gray-200 px-1 py-0.5 text-sm text-center focus:outline-none focus:ring-1 focus:ring-blue-400"
                   />
@@ -209,6 +212,7 @@ export function DealProducts({ dealId, onValueChange }: DealProductsProps) {
                     min={0}
                     step={0.01}
                     value={item.unitPrice}
+                    disabled={somenteLeitura}
                     onChange={(e) => handleUpdateItem(item, { unitPrice: Number(e.target.value) })}
                     className="w-24 rounded border border-gray-200 px-1 py-0.5 text-sm text-right focus:outline-none focus:ring-1 focus:ring-blue-400"
                   />
@@ -221,6 +225,7 @@ export function DealProducts({ dealId, onValueChange }: DealProductsProps) {
                     min={0}
                     max={100}
                     value={item.discount}
+                    disabled={somenteLeitura}
                     onChange={(e) => handleUpdateItem(item, { discount: Number(e.target.value) })}
                     className="w-16 rounded border border-gray-200 px-1 py-0.5 text-sm text-center focus:outline-none focus:ring-1 focus:ring-blue-400"
                   />
@@ -233,13 +238,15 @@ export function DealProducts({ dealId, onValueChange }: DealProductsProps) {
 
                 {/* Delete */}
                 <td className="py-2 pl-2">
-                  <button
-                    onClick={() => handleDelete(item.id)}
-                    className="text-gray-300 hover:text-red-500 transition-colors"
-                    title="Remover item"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  {!somenteLeitura && (
+                    <button
+                      onClick={() => handleDelete(item.id)}
+                      className="text-gray-300 hover:text-red-500 transition-colors"
+                      title="Remover item"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -336,8 +343,14 @@ export function DealProducts({ dealId, onValueChange }: DealProductsProps) {
         </table>
       </div>
 
+      {somenteLeitura && (
+        <p className="text-sm text-foreground">
+          O valor deste negócio vem do Flow. Os produtos ficam só para leitura.
+        </p>
+      )}
+
       {/* Add button */}
-      {!addingRow && (
+      {!addingRow && !somenteLeitura && (
         <button
           onClick={() => setAddingRow(true)}
           className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 transition-colors font-medium"

@@ -17,6 +17,12 @@ export interface PipelineDeal {
   assignedUser?: { id: string; name: string; email?: string } | null;
   notes?: string | null;
   lostReason?: string | null;
+  demanda?: {
+    id: string;
+    flowCardId: string | null;
+    valorEnviado?: number | string | null;
+    valorAprovado?: number | string | null;
+  } | null;
   positionInColumn: number;
   // Gestão de Negócios (RD parity) — enriquecimento do card (req 35)
   status?: string | null;

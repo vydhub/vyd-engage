@@ -56,6 +56,8 @@ import { WhatsAppSendPanel } from '../components/lead/WhatsAppSendPanel';
 import { useAIStatus } from '../hooks/useAIStatus';
 import { NextActionCard } from '../components/NextActionCard';
 import { AIDraftDialog } from '../components/ai/AIDraftDialog';
+import { AvisoFlow } from '../components/deals/AvisoFlow';
+import { ROTULO_ESTADO, valorControladoPeloFlow, type DemandaEstado } from '../types/captura';
 import { AuditTimeline } from '../components/AuditTimeline';
 import { formatCurrency } from '../utils/format';
 import { Timeline, TimelineItem } from '../components/ui/timeline';
@@ -296,9 +298,12 @@ export function DealDetail() {
     return days > limit ? days : null;
   }, [currentColumn, interactions, deal?.updatedAt]);
 
+  // Via única (E-16): Negócio da Captura não muda de etapa nem de status nesta tela.
+  const controladoPeloFlow = !!deal?.demanda;
+
   const [movingColumn, setMovingColumn] = useState(false);
   const handleMoveToColumn = async (colId: string) => {
-    if (!id || colId === deal?.funnelColumnId || movingColumn) return;
+    if (!id || colId === deal?.funnelColumnId || movingColumn || controladoPeloFlow) return;
     setMovingColumn(true);
     try {
       const result = await apiClient.updateDeal(id, { funnelColumnId: colId });
@@ -547,6 +552,8 @@ export function DealDetail() {
           <span className="text-sm">Voltar para Deals</span>
         </button>
 
+        {deal.demanda && <AvisoFlow demanda={deal.demanda} />}
+
         {/* Stepper de etapas (req 24) — clicável, com tempo na etapa e badge de esfriamento (req 26) */}
         {funnelColumns.length > 0 && (
           <div className="mb-6 bg-card rounded-lg shadow-sm border border-gray-300 p-4">
@@ -573,8 +580,12 @@ export function DealDetail() {
                     key={col.id as string}
                     type="button"
                     onClick={() => handleMoveToColumn(col.id as string)}
-                    disabled={movingColumn}
-                    title={(col.objective as string) || (col.title as string)}
+                    disabled={movingColumn || controladoPeloFlow}
+                    title={
+                      controladoPeloFlow
+                        ? 'Andamento controlado pelo Flow'
+                        : (col.objective as string) || (col.title as string)
+                    }
                     className={`text-xs px-3 py-1.5 rounded-full border border-gray-300 transition-colors ${
                       isCurrent
                         ? 'bg-primary text-white'
@@ -780,7 +791,9 @@ export function DealDetail() {
                           key={entry.id}
                           className="flex items-center justify-between text-sm border-b border-gray-100 pb-2 last:border-0 last:pb-0"
                         >
-                          <span className="font-medium text-gray-900">{entry.stage}</span>
+                          <span className="font-medium text-gray-900">
+                            {ROTULO_ESTADO[entry.stage as DemandaEstado] ?? entry.stage}
+                          </span>
                           <span className="text-gray-500 text-xs">
                             {entered.toLocaleDateString('pt-BR')} &mdash;{' '}
                             {durationDays !== null
@@ -866,6 +879,7 @@ export function DealDetail() {
                   <DealProducts
                     dealId={deal.id}
                     currentValue={Number(deal.value)}
+                    somenteLeitura={valorControladoPeloFlow(deal.demanda)}
                     onValueChange={async (v) => {
                       if (!id) return;
                       const result = await apiClient.updateDeal(id, { value: v });
@@ -945,6 +959,7 @@ export function DealDetail() {
                   | undefined;
                 const closed = status === 'WON' || status === 'LOST';
                 const paused = status === 'PAUSED';
+                if (controladoPeloFlow) return null;
                 return (
                   <div className="flex flex-wrap gap-2">
                     <Button size="sm" onClick={handleMarkWon} disabled={status === 'WON'}>

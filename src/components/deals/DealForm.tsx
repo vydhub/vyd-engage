@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { AvisoFlow } from './AvisoFlow';
 import { Deal, DealStage, CustomField } from '../../types';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -14,6 +15,7 @@ import { dealFormSchema } from '../../utils/validation/formSchemas';
 import { useFormValidation } from '../../hooks/useFormValidation';
 import { useAutoFocus, useFocusReturn } from '../../hooks/useFocusManagement';
 import { useAuth } from '../../contexts/AuthContext';
+import { valorControladoPeloFlow } from '../../types/captura';
 
 const STAGES: { value: DealStage; label: string }[] = [
   { value: 'QUALIFICATION', label: 'Qualificação' },
@@ -64,6 +66,7 @@ export function DealForm({
   // Analista (USER) só pode atribuir a si mesmo — campo Responsável travado (req 8).
   const { user: currentUser } = useAuth();
   const isAnalyst = currentUser?.role === 'USER';
+  const valorDoFlow = valorControladoPeloFlow(deal?.demanda);
   const {
     fieldErrors,
     touchedFields,
@@ -249,6 +252,10 @@ export function DealForm({
         oneTimeValue: oneTimeValue !== '' ? parseFloat(oneTimeValue) : null,
         recurringValue: recurringValue !== '' ? parseFloat(recurringValue) : null,
         customFields: customFieldValues,
+        // Via única (E-16): o andamento do Negócio da Captura não sai deste formulário. O
+        // cartão do quadro nem traz o funil, e mandar vazio seria lido como mudança.
+        ...(deal?.demanda ? { stage: undefined, lostReason: undefined, funnelId: undefined } : {}),
+        ...(valorDoFlow ? { value: undefined } : {}),
       });
       onClose();
     } catch {
@@ -264,6 +271,7 @@ export function DealForm({
         <DialogHeader>
           <DialogTitle>{deal ? 'Editar Deal' : 'Novo Deal'}</DialogTitle>
         </DialogHeader>
+        {deal?.demanda && <AvisoFlow demanda={deal.demanda} />}
         <form
           onSubmit={handleSubmit}
           className="space-y-4"
@@ -305,6 +313,8 @@ export function DealForm({
                 min="0"
                 step="0.01"
                 value={value}
+                disabled={valorDoFlow}
+                title={valorDoFlow ? 'O valor deste negócio vem do Flow' : undefined}
                 onChange={(e) => {
                   setValue(e.target.value);
                   handleChange('value', e.target.value);
@@ -324,7 +334,11 @@ export function DealForm({
             </div>
             <div>
               <Label htmlFor="deal-stage">Stage</Label>
-              <Select value={stage} onValueChange={(v) => setStage(v as DealStage)}>
+              <Select
+                value={stage}
+                onValueChange={(v) => setStage(v as DealStage)}
+                disabled={!!deal?.demanda}
+              >
                 <SelectTrigger id="deal-stage">
                   <SelectValue />
                 </SelectTrigger>
@@ -524,6 +538,7 @@ export function DealForm({
               <Select
                 value={funnelId || 'none'}
                 onValueChange={(v) => setFunnelId(v === 'none' ? '' : v)}
+                disabled={!!deal?.demanda}
               >
                 <SelectTrigger id="deal-funnel">
                   <SelectValue placeholder="Selecionar pipeline" />

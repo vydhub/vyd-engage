@@ -111,6 +111,7 @@ model User {
   assignedCompanies     Company[]             @relation("CompanyAssignment")
   ledTeams              Team[]                @relation("TeamLeader")
   apiKeys               ApiKey[]
+  contratoMovimentos    ContratoMovimento[]
 
   @@index([email])
   @@index([tenantId])
@@ -221,6 +222,9 @@ model Tenant {
   contractAlertDays     Json                   @default("[90,60,30]")
   // Atestados: antecedência (dias) do alerta de pendência próxima do prazo.
   atestadoAlertDays     Int                    @default(7)
+  // Captura de Demandas (E-23): calendário de horas úteis do tenant. Valor provisório
+  // da spec-mãe: segunda a sexta, 8h às 18h (Brasília), feriados nacionais não contam.
+  capturaCalendario     Json                   @default("{\"diasUteis\":[1,2,3,4,5],\"inicio\":\"08:00\",\"fim\":\"18:00\",\"fuso\":\"America/Sao_Paulo\",\"excluirFeriadosNacionais\":true,\"feriadosExtras\":[]}")
   products              Product[]
   goals                 Goal[]
   stageTaskTemplates    StageTaskTemplate[]
@@ -261,6 +265,10 @@ model Tenant {
   registrosOportunidade RegistroOportunidade[]
   consultorDocumentos   ConsultorDocumento[]
   parceiroConfig        ParceiroConfig?
+  // Captura de Demandas: contratos LTA e registro da demanda
+  contratos             Contrato[]
+  demandas              Demanda[]
+  demandaEventos        DemandaEvento[]
 
   @@index([slug])
 }
@@ -438,6 +446,10 @@ model FunnelColumn {
   coolingEnabled Boolean @default(false)
   coolingDays    Int?
 
+  // Captura de Demandas (E-12): estado M-04 que esta coluna representa. Nulo nos funis
+  // comuns; a coluna de um estado é a primeira, pela ordem, com este valor.
+  capturaEstado DemandaEstado?
+
   // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -576,6 +588,7 @@ model Company {
   empreendimentos    Empreendimento[]
   commercialRoadmaps CommercialRoadmap[]
   deepResearches     DeepResearch[]
+  contratos          Contrato[]
 
   @@index([tenantId])
   @@index([tenantId, name])
@@ -666,6 +679,9 @@ model Deal {
   dealProducts       DealProduct[]
   commercialRoadmaps CommercialRoadmap[]
   questionnaireResponses QuestionnaireResponse[]
+  // Captura de Demandas: satélite 1:1 e consumos de saldo vindos deste Negócio
+  demanda            Demanda?
+  contratoMovimentos ContratoMovimento[]
 
   @@index([tenantId])
   @@index([tenantId, stage])
@@ -3468,4 +3484,205 @@ model ParceiroConfig {
   updatedAt DateTime @updatedAt
 
   @@map("parceiro_configs")
+}
+
+// ============================================
+// CAPTURA DE DEMANDAS (spec captura-demandas, filha 02)
+// ============================================
+
+enum ContratoTipo {
+  LTA
+  GUARDA_CHUVA
+}
+
+enum ContratoMovimentoTipo {
+  ADITIVO
+  AJUSTE
+  CONSUMO
+}
+
+// Códigos fixados pela spec-mãe: são contrato de integração, por isso em minúsculas
+// como trafegam no JSON, e não em UPPER_SNAKE.
+enum DemandaCenario {
+  contrato_novo
+  chamado_lta
+}
+
+// Estados compartilhados da spec-mãe (M-04), com exatamente estes códigos.
+enum DemandaEstado {
+  recebida
+  em_triagem
+  em_orcamento
+  orcamento_enviado
+  ganha
+  perdida
+  declinada
+  cancelada
+  descartada
+}
+
+// E-01/E-02: contrato LTA ou guarda-chuva. Vários por cliente. Gerente e planejador
+// ficam por nome e e-mail, sem chave para User: podem não ter login no Engage.
+model Contrato {
+  id               String       @id @default(uuid())
+  tenantId         String
+  tenant           Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  companyId        String
+  company          Company      @relation(fields: [companyId], references: [id], onDelete: NoAction)
+  // Igual ao "Codigo" do Flow, sempre normalizado (sem espaço nas pontas).
+  numero           String
+  numeroCliente    String?
+  tipo             ContratoTipo @default(LTA)
+  objeto           String?
+  escopo           String?
+  vigenciaInicio   DateTime?    @db.Date
+  vigenciaFim      DateTime?    @db.Date
+  valorContratado  Decimal?     @db.Decimal(14, 2)
+  slaRespostaHoras Int?
+  gerenteNome      String?
+  gerenteEmail     String?
+  planejadorNome   String?
+  planejadorEmail  String?
+  flowRecordId     String?      @unique
+  /// Versão (`updatedAt`) que o Flow recusou com 409. A rotina do espelho não a reenvia (E-10).
+  espelhoRecusadoNaVersao DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  solicitantes ContratoSolicitante[]
+  itens        ContratoItem[]
+  movimentos   ContratoMovimento[]
+  demandas     Demanda[]
+
+  @@unique([tenantId, numero])
+  @@index([tenantId])
+  @@index([tenantId, companyId])
+  @@index([tenantId, updatedAt])
+  @@index([tenantId, vigenciaFim])
+  @@index([tenantId, deletedAt])
+}
+
+// E-03: quem pode pedir pelo contrato. E-mail sempre em minúsculas.
+model ContratoSolicitante {
+  id         String   @id @default(uuid())
+  contratoId String
+  contrato   Contrato @relation(fields: [contratoId], references: [id], onDelete: Cascade)
+  nome       String?
+  email      String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([contratoId, email])
+  @@index([email])
+}
+
+// E-04: itens do contrato.
+model ContratoItem {
+  id         String   @id @default(uuid())
+  contratoId String
+  contrato   Contrato @relation(fields: [contratoId], references: [id], onDelete: Cascade)
+  descricao  String
+  disciplina String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([contratoId])
+}
+
+// E-05/E-06: movimentos do saldo. Só se insere: correção é outro movimento.
+// Um CONSUMO de valor negativo é a compensação de um consumo anterior do mesmo Negócio.
+model ContratoMovimento {
+  id              String                @id @default(uuid())
+  contratoId      String
+  contrato        Contrato              @relation(fields: [contratoId], references: [id], onDelete: Cascade)
+  tipo            ContratoMovimentoTipo
+  valor           Decimal               @db.Decimal(14, 2)
+  motivo          String?
+  autorId         String?
+  autor           User?                 @relation(fields: [autorId], references: [id], onDelete: SetNull)
+  dealId          String?
+  deal            Deal?                 @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  // Evento do Flow que originou o movimento, quando ele nasceu de um evento.
+  demandaEventoId String?
+  demandaEvento   DemandaEvento?        @relation(fields: [demandaEventoId], references: [id], onDelete: SetNull)
+  createdAt       DateTime              @default(now())
+
+  @@index([contratoId])
+  @@index([contratoId, tipo])
+  @@index([dealId])
+}
+
+// E-11: satélite do Negócio, 1:1. A Demanda sobrevive ao descarte (E-17), por isso a
+// FK para Deal não cascateia: Negócio com Demanda não pode ser apagado de verdade.
+model Demanda {
+  id               String         @id @default(uuid())
+  tenantId         String
+  tenant           Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  dealId           String         @unique
+  deal             Deal           @relation(fields: [dealId], references: [id], onDelete: NoAction)
+  chaveDedup       String
+  idCaptura        String
+  flowCardId       String?
+  cenario          DemandaCenario
+  fonte            String
+  nivel            Int
+  recebidoEmOrigem DateTime
+  capturadoEm      DateTime
+  triagemEm        DateTime?
+  orcamentoEm      DateTime?
+  enviadoEm        DateTime?
+  /// Último valor definido fora do Flow: o da criação ou o da edição à mão permitida (tela,
+  /// copiloto ou produtos). É o `Deal.value` sempre que o Flow não informou valor aprovado nem
+  /// enviado; um evento sem valor não o apaga. Gravado sob a trava da demanda.
+  valorEstimado    Decimal?       @db.Decimal(12, 2)
+  valorEnviado     Decimal?       @db.Decimal(14, 2)
+  aprovadoEm       DateTime?
+  valorAprovado    Decimal?       @db.Decimal(14, 2)
+  encerradoEm      DateTime?
+  estado           DemandaEstado  @default(recebida)
+  motivo           String?
+  contratoId       String?
+  contrato         Contrato?      @relation(fields: [contratoId], references: [id], onDelete: NoAction)
+  linkOriginal     String?
+  ultimoEventoEm   DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  eventos DemandaEvento[]
+
+  @@unique([tenantId, chaveDedup])
+  @@index([tenantId])
+  @@index([tenantId, estado])
+  @@index([tenantId, cenario])
+  @@index([tenantId, contratoId])
+  @@index([tenantId, recebidoEmOrigem])
+  @@index([flowCardId])
+}
+
+// E-15: histórico de eventos do Flow. A unicidade de (tenantId, eventoId) é o que torna
+// o evento idempotente. aplicado = false quer dizer que entrou só no histórico.
+model DemandaEvento {
+  id            String        @id @default(uuid())
+  tenantId      String
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  demandaId     String
+  demanda       Demanda       @relation(fields: [demandaId], references: [id], onDelete: Cascade)
+  eventoId      String
+  estado        DemandaEstado
+  ocorridoEm    DateTime
+  flowCardId    String?
+  valorEnviado  Decimal?      @db.Decimal(14, 2)
+  valorAprovado Decimal?      @db.Decimal(14, 2)
+  motivo        String?
+  autorEmail    String?
+  aplicado      Boolean
+  createdAt     DateTime      @default(now())
+
+  movimentos ContratoMovimento[]
+
+  @@unique([tenantId, eventoId])
+  @@index([demandaId])
+  @@index([demandaId, ocorridoEm])
 }

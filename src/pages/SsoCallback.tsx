@@ -5,12 +5,14 @@
 // Fluxo: ler o fragmento → limpar a URL com history.replaceState ANTES de
 // qualquer await (o token não pode ficar no histórico) → POST do token em
 // /auth/sso/exchange (cookies httpOnly setados pelo backend) → refreshUser()
-// do AuthContext → navegar para redirect_to (se válido) ou /app.
+// do AuthContext → navegar para redirect_to (se válido), para a rota que a pessoa tentou
+// abrir sem sessão (RequireAuth) ou para /app.
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { apiClient } from '../services/api/client';
 import { useAuth } from '../contexts/AuthContext';
+import { lerDestino, limparDestino } from '../utils/destinoAposLogin';
 
 const VYD_ID_PORTAL_URL = 'https://id.vydhub.com';
 
@@ -35,7 +37,7 @@ export function SsoCallback() {
 
     const params = new URLSearchParams(window.location.hash.replace(/^#/, ''));
     const token = params.get('vyd_token');
-    const redirectTo = safeRedirect(params.get('redirect_to'));
+    const redirectTo = safeRedirect(params.get('redirect_to') ?? lerDestino());
 
     // Limpa o token da URL imediatamente (histórico/barra de endereço).
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
@@ -49,6 +51,7 @@ export function SsoCallback() {
       try {
         await apiClient.ssoExchange(token);
         await refreshUser();
+        limparDestino();
         navigate(redirectTo, { replace: true });
       } catch (err) {
         setError(

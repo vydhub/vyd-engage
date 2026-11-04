@@ -26,6 +26,10 @@ export const API_SCOPES = [
   'contacts:read',
   'reports:read',
   'webhooks:manage',
+  // Captura de Demandas (spec captura-demandas, E-18). Exigidos de forma explícita:
+  // as rotas novas usam `requireExplicitScope`, sem a passagem das chaves legadas.
+  'contracts:read',
+  'captura:write',
 ] as const;
 
 export type ApiScope = (typeof API_SCOPES)[number];
@@ -157,6 +161,26 @@ export function requireScope(scope: ApiScope) {
   };
 }
 
+/**
+ * Igual a `requireScope`, mas sem a passagem das chaves legadas: chave com `scopes`
+ * vazio não tem o escopo e recebe 403. É o que as rotas da Captura usam (E-18), para uma
+ * chave antiga, de acesso total, não ganhar escrita em Negócios nem leitura de contratos.
+ * `requireScope` segue igual: as rotas atuais não mudam.
+ */
+export function requireExplicitScope(scope: ApiScope) {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    if (!req.apiKey) {
+      return next(createError('API key authentication required', 401, 'API_KEY_REQUIRED'));
+    }
+    if (!req.apiKey.scopes.includes(scope)) {
+      return next(
+        createError(`API key missing required scope: ${scope}`, 403, 'API_KEY_INSUFFICIENT_SCOPE')
+      );
+    }
+    next();
+  };
+}
+
 // ---------------------------------------------------------------------------
 // API-2.2 - Chave de API como credencial de um usuario REAL
 // ---------------------------------------------------------------------------
@@ -183,7 +207,11 @@ export function apiKeyReadEnabled(): boolean {
   return process.env.ENABLE_API_KEY_READ === 'true';
 }
 
-async function attachApiKeyUser(req: Request, _res: Response, next: NextFunction): Promise<void> {
+export async function attachApiKeyUser(
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): Promise<void> {
   try {
     const boundUserId = req.apiKey?.userId;
     if (!boundUserId) {

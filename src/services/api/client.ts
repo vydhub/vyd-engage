@@ -1,4 +1,16 @@
 import type {
+  ContratoDetalhe,
+  ContratoEntrada,
+  ContratoItem,
+  ContratoMovimento,
+  ContratoMovimentoTipo,
+  ContratoResumo,
+  ContratoSolicitante,
+  FiltrosRelatorioCaptura,
+  LacunaContrato,
+  RelatorioCaptura,
+} from '../../types/captura';
+import type {
   DeepResearch,
   DeepResearchListItem,
   DeepResearchTemplate,
@@ -2002,10 +2014,142 @@ class ApiClient {
           contractCompetitor?: string | null;
           contractEndDate: string;
           assignedUser?: { id: string; name: string } | null;
+          /** Preenchido quando a linha vem da entidade Contrato (E-08). */
+          contrato?: { id: string; numero: string } | null;
         }>;
         windowDays: number;
       };
     }>('/api/v1/companies/contracts/expiring');
+  }
+
+  // ========================
+  // Contratos e relatório da Captura (spec captura-demandas)
+  // ========================
+
+  async getContratos(filtros: {
+    busca?: string;
+    companyId?: string;
+    lacuna?: LacunaContrato;
+    page?: number;
+    limit?: number;
+  } = {}) {
+    const params = new URLSearchParams();
+    if (filtros.busca) params.set('busca', filtros.busca);
+    if (filtros.companyId) params.set('companyId', filtros.companyId);
+    if (filtros.lacuna) params.set('lacuna', filtros.lacuna);
+    if (filtros.page) params.set('page', String(filtros.page));
+    if (filtros.limit) params.set('limit', String(filtros.limit));
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request<{
+      data: {
+        itens: ContratoResumo[];
+        paginacao: { page: number; limit: number; total: number; totalPages: number };
+      };
+    }>(`/api/v1/gestao-contratos${query}`);
+  }
+
+  async getContrato(id: string) {
+    return this.request<{ data: ContratoDetalhe }>(`/api/v1/gestao-contratos/${id}`);
+  }
+
+  async createContrato(dados: ContratoEntrada) {
+    return this.request<{ data: { id: string } }>('/api/v1/gestao-contratos', {
+      method: 'POST',
+      body: JSON.stringify(dados),
+    });
+  }
+
+  async updateContrato(id: string, dados: ContratoEntrada) {
+    return this.request<{ data: { id: string } }>(`/api/v1/gestao-contratos/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(dados),
+    });
+  }
+
+  async deleteContrato(id: string) {
+    return this.request<{ data: { excluido: boolean } }>(`/api/v1/gestao-contratos/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async addContratoSolicitante(id: string, dados: { nome?: string | null; email: string }) {
+    return this.request<{ data: ContratoSolicitante }>(
+      `/api/v1/gestao-contratos/${id}/solicitantes`,
+      { method: 'POST', body: JSON.stringify(dados) }
+    );
+  }
+
+  async updateContratoSolicitante(
+    id: string,
+    solicitanteId: string,
+    dados: { nome?: string | null; email?: string }
+  ) {
+    return this.request<{ data: ContratoSolicitante }>(
+      `/api/v1/gestao-contratos/${id}/solicitantes/${solicitanteId}`,
+      { method: 'PUT', body: JSON.stringify(dados) }
+    );
+  }
+
+  async removeContratoSolicitante(id: string, solicitanteId: string) {
+    return this.request<{ data: { removido: boolean } }>(
+      `/api/v1/gestao-contratos/${id}/solicitantes/${solicitanteId}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  async addContratoItem(id: string, dados: { descricao: string; disciplina?: string | null }) {
+    return this.request<{ data: ContratoItem }>(`/api/v1/gestao-contratos/${id}/itens`, {
+      method: 'POST',
+      body: JSON.stringify(dados),
+    });
+  }
+
+  async updateContratoItem(
+    id: string,
+    itemId: string,
+    dados: { descricao?: string; disciplina?: string | null }
+  ) {
+    return this.request<{ data: ContratoItem }>(
+      `/api/v1/gestao-contratos/${id}/itens/${itemId}`,
+      { method: 'PUT', body: JSON.stringify(dados) }
+    );
+  }
+
+  async removeContratoItem(id: string, itemId: string) {
+    return this.request<{ data: { removido: boolean } }>(
+      `/api/v1/gestao-contratos/${id}/itens/${itemId}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  async addContratoMovimento(
+    id: string,
+    dados: { tipo: ContratoMovimentoTipo; valor: number; motivo?: string | null }
+  ) {
+    return this.request<{ data: ContratoMovimento }>(
+      `/api/v1/gestao-contratos/${id}/movimentos`,
+      { method: 'POST', body: JSON.stringify(dados) }
+    );
+  }
+
+  async getCapturaIndicadores(filtros: FiltrosRelatorioCaptura = {}) {
+    const params = new URLSearchParams();
+    for (const [chave, valor] of Object.entries(filtros)) {
+      if (valor) params.set(chave, valor);
+    }
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request<{ data: RelatorioCaptura }>(
+      `/api/v1/captura-relatorio/indicadores${query}`
+    );
+  }
+
+  async getCapturaFiltros() {
+    return this.request<{
+      data: {
+        clientes: Array<{ id: string; nome: string }>;
+        contratos: Array<{ id: string; nome: string }>;
+      };
+    }>('/api/v1/captura-relatorio/filtros');
   }
 
   // ========================

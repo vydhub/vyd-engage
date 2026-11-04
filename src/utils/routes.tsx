@@ -84,6 +84,8 @@ const ApiKeys = lazyNamed(() => import('../pages/ApiKeys'), 'ApiKeys');
 const PlatformAdmin = lazyNamed(() => import('../pages/PlatformAdmin'), 'PlatformAdmin');
 const TeamPerformance = lazyNamed(() => import('../pages/TeamPerformance'), 'TeamPerformance');
 const WinLossReport = lazyNamed(() => import('../pages/WinLossReport'), 'WinLossReport');
+const CapturaRelatorio = lazyNamed(() => import('../pages/CapturaRelatorio'), 'CapturaRelatorio');
+const Contratos = lazyNamed(() => import('../pages/Contratos'), 'Contratos');
 const Products = lazyNamed(() => import('../pages/Products'), 'Products');
 const Import = lazyNamed(() => import('../pages/Import'), 'Import');
 const Campaigns = lazyNamed(() => import('../pages/Campaigns'), 'Campaigns');
@@ -183,6 +185,11 @@ export const router = createBrowserRouter([
       {
         path: 'companies',
         element: Companies,
+      },
+      {
+        // Captura de Demandas (E-07): quem edita é decidido na tela e na API.
+        path: 'contratos',
+        element: Contratos,
       },
       {
         path: 'companies/:id',
@@ -337,6 +344,11 @@ export const router = createBrowserRouter([
       {
         path: 'reports/win-loss',
         element: guard(WinLossReport, MANAGER_ROLES),
+      },
+      {
+        // Captura de Demandas (E-21): a visibilidade por dono é aplicada na API.
+        path: 'reports/captura',
+        element: CapturaRelatorio,
       },
       {
         path: 'settings/products',

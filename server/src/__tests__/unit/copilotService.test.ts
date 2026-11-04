@@ -605,6 +605,61 @@ describe('escrita com aceite', () => {
     expect(res.reply).toMatch(/fluxo próprio/i);
   });
 
+  it('atualizar_deal com valor em Negócio cujo valor veio do Flow → recusado (E-15, E-16)', async () => {
+    prismaMock.user.findMany.mockResolvedValue([knownUser] as never);
+    prismaMock.interaction.findFirst.mockResolvedValue({
+      id: 'int-pending',
+      metadata: {
+        copilotPending: {
+          kind: 'atualizar_deal',
+          args: { dealId: 'deal-1', value: 1 },
+          summary: 'Vou atualizar...',
+          connectionId: 'conn-1',
+          resolved: false,
+        },
+      },
+    } as never);
+    prismaMock.deal.findFirst.mockResolvedValueOnce({
+      id: 'deal-1',
+      stage: 'PROPOSAL',
+      demanda: { id: 'dem-1', valorEnviado: 500, valorAprovado: null },
+    } as never);
+
+    const res = await copilotService.handleCopilotMessage(tenantId, connection, KNOWN_FROM, 'sim');
+
+    expect(res.handled).toBe(true);
+    expect(dealUpdateMock).not.toHaveBeenCalled();
+    expect(res.reply).toMatch(/vem do Flow/i);
+  });
+
+  it('atualizar_deal com valor em Negócio da Captura sem valor do Flow → segue (estimado é livre)', async () => {
+    prismaMock.user.findMany.mockResolvedValue([knownUser] as never);
+    prismaMock.interaction.findFirst.mockResolvedValue({
+      id: 'int-pending',
+      metadata: {
+        copilotPending: {
+          kind: 'atualizar_deal',
+          args: { dealId: 'deal-1', value: 1 },
+          summary: 'Vou atualizar...',
+          connectionId: 'conn-1',
+          resolved: false,
+        },
+      },
+    } as never);
+    prismaMock.deal.findFirst.mockResolvedValueOnce({
+      id: 'deal-1',
+      stage: 'PROPOSAL',
+      demanda: { id: 'dem-1', valorEnviado: null, valorAprovado: null },
+    } as never);
+
+    await copilotService.handleCopilotMessage(tenantId, connection, KNOWN_FROM, 'sim');
+
+    expect(dealUpdateMock).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({ id: 'deal-1', value: 1 })
+    );
+  });
+
   it('atualizar_deal cujo deal-alvo já está WON → recusa REABERTURA (não chama update) (#1)', async () => {
     // Proposta com etapa NÃO-terminal (NEGOTIATION) sobre um deal que JÁ está WON.
     // dealService.update trataria isso como reabertura (status=OPEN, wonAt=null),

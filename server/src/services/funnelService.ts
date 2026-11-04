@@ -1,7 +1,7 @@
 import prisma from '../config/database.js';
 import { LeadStatus, LeadStatusReason, FunnelType } from '@prisma/client';
 import { createError } from '../middleware/errorHandler.js';
-import { assertStageRequiredFieldsFilled } from './dealService.js';
+import { assertStageRequiredFieldsFilled, recusarAndamentoManual } from './dealService.js';
 import {
   TERMINAL_LEAD_STATUSES,
   LEAD_STATUS_REASON_LABELS,
@@ -125,6 +125,9 @@ export const funnelService = {
                 lead: { select: { id: true, name: true, email: true, company: true } },
                 assignedUser: { select: { id: true, name: true, email: true } },
                 company: { select: { id: true, name: true } },
+                demanda: {
+                  select: { id: true, flowCardId: true, valorEnviado: true, valorAprovado: true },
+                },
                 _count: { select: { tasks: true } },
               },
             },
@@ -387,6 +390,11 @@ export const funnelService = {
       throw createError('Cannot delete the default column', 400);
     }
 
+    // E-12: a coluna representa um estado da Captura; os eventos do Flow dependem dela.
+    if (column.capturaEstado) {
+      throw createError('Esta coluna é usada pelo Radar e não pode ser excluída', 400);
+    }
+
     if (column._count.leads > 0) {
       throw createError('Cannot delete column with leads. Move leads first.', 400);
     }
@@ -531,11 +539,15 @@ export const funnelService = {
     // os do time; não-dono → 404. undefined → sem filtro (manager).
     const deal = await prisma.deal.findFirst({
       where: { id: dealId, tenantId, deletedAt: null, ...(ownerId ? { assignedTo: ownerId } : {}) },
+      include: { demanda: { select: { id: true } } },
     });
 
     if (!deal) {
       throw createError('Deal not found', 404);
     }
+
+    // E-16: reordenar dentro da coluna é livre; mudar de coluna é mudar de etapa.
+    if (deal.demanda && deal.funnelColumnId !== targetColumnId) recusarAndamentoManual();
 
     const targetColumn = await prisma.funnelColumn.findFirst({
       where: { id: targetColumnId, funnel: { tenantId } },
@@ -561,15 +573,37 @@ export const funnelService = {
       funnelId: targetColumn.funnelId,
       positionInColumn: position,
     };
+    const incluir = {
+      lead: { select: { id: true, name: true, email: true } },
+      assignedUser: { select: { id: true, name: true, email: true } },
+    } as const;
 
-    const updatedDeal = await prisma.deal.update({
-      where: { id: dealId },
-      data: updateData,
-      include: {
-        lead: { select: { id: true, name: true, email: true } },
-        assignedUser: { select: { id: true, name: true, email: true } },
-      },
-    });
+    let updatedDeal;
+    if (deal.demanda) {
+      // Negócio com Demanda: uma transação que começa travando a demanda, a mesma trava dos
+      // eventos. Confere de novo a coluna sob a trava e grava só a posição: coluna e funil são do
+      // Flow, e regravá-los cobriria o que um evento mudou no meio.
+      const { escreverNoNegocioDaDemanda } = await import('./captura/demandaService.js');
+      updatedDeal = await escreverNoNegocioDaDemanda(tenantId, dealId, async (tx) => {
+        const atual = await tx.deal.findFirst({
+          where: { id: dealId, tenantId, deletedAt: null },
+          select: { funnelColumnId: true },
+        });
+        if (!atual) throw createError('Deal not found', 404);
+        if (atual.funnelColumnId !== targetColumnId) recusarAndamentoManual();
+        return tx.deal.update({
+          where: { id: dealId },
+          data: { positionInColumn: position },
+          include: incluir,
+        });
+      });
+    } else {
+      updatedDeal = await prisma.deal.update({
+        where: { id: dealId },
+        data: updateData,
+        include: incluir,
+      });
+    }
 
     // Reorder other deals in target column
     const dealsInColumn = await prisma.deal.findMany({

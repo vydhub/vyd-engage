@@ -551,7 +551,11 @@ async function executePending(
     // #1: carrega também a etapa ATUAL — se o deal já está WON/LOST, uma etapa
     // não-terminal (ex.: NEGOTIATION) faria dealService.update tratar como REABERTURA
     // (status=OPEN, wonAt/lostAt=null), contornando o fluxo dedicado de reabertura.
-    select: { id: true, stage: true },
+    select: {
+      id: true,
+      stage: true,
+      demanda: { select: { id: true, valorEnviado: true, valorAprovado: true } },
+    },
   });
   if (!visible) {
     logger.warn('Copilot: deal fora de escopo na execução — atualização abortada', {
@@ -561,6 +565,16 @@ async function executePending(
       entityId: args.dealId,
     });
     throw new DealAccessError();
+  }
+  // Via única (spec captura-demandas, E-16): erro permanente, com mensagem que explica.
+  if (visible.demanda && args.stage) {
+    throw new PermissionError('Esta negociação tem o andamento controlado pelo Flow.');
+  }
+  const valorDoFlow =
+    visible.demanda &&
+    (visible.demanda.valorEnviado !== null || visible.demanda.valorAprovado !== null);
+  if (valorDoFlow && typeof args.value === 'number') {
+    throw new PermissionError('O valor desta negociação vem do Flow e não muda por aqui.');
   }
   // #1: recusa REABERTURA implícita. Se o deal ALVO já está WON/LOST, mudar para uma
   // etapa não-terminal reabriria a negociação por baixo dos panos — espelha a guarda

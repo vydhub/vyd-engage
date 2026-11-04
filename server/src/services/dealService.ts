@@ -1,5 +1,5 @@
 import prisma from '../config/database.js';
-import { DealStage, DealStatus, CommercialRoadmapStatus } from '@prisma/client';
+import { DealStage, DealStatus, CommercialRoadmapStatus, Prisma, type Deal } from '@prisma/client';
 import { createError } from '../middleware/errorHandler.js';
 import { logger } from '../utils/logger.js';
 import { webhookDispatcher } from './webhookDispatcher.js';
@@ -47,6 +47,46 @@ const dealInclude = {
   lead: { select: { id: true, name: true, email: true } },
   assignedUser: { select: { id: true, name: true, email: true } },
 } as const;
+
+/**
+ * Via única (spec captura-demandas, M-03, E-16): Negócio com `Demanda` tem o andamento
+ * controlado pelo Flow. Notas, tarefas e interações continuam livres.
+ */
+export const AVISO_CONTROLADO_PELO_FLOW = 'Andamento controlado pelo Flow';
+
+export function recusarAndamentoManual(): never {
+  throw createError(AVISO_CONTROLADO_PELO_FLOW, 403, 'DEAL_CONTROLADO_PELO_FLOW');
+}
+
+/** O que a tela e as guardas precisam saber da demanda de um Negócio. */
+const demandaDoNegocio = {
+  select: {
+    id: true,
+    flowCardId: true,
+    estado: true,
+    cenario: true,
+    valorEnviado: true,
+    valorAprovado: true,
+    linkOriginal: true,
+  },
+} as const;
+
+/**
+ * E-15: depois que o Flow informa valor enviado ou aprovado, `Deal.value` é esse valor e só
+ * muda por evento. Antes disso, o valor estimado continua editável.
+ */
+export function valorControladoPeloFlow(
+  demanda: { valorEnviado?: unknown; valorAprovado?: unknown } | null | undefined
+): boolean {
+  return !!demanda && (demanda.valorEnviado != null || demanda.valorAprovado != null);
+}
+
+/** Igualdade de um campo do Negócio: datas, decimais e JSON comparados pelo valor. */
+function mesmoValor(a: unknown, b: unknown): boolean {
+  const normal = (v: unknown): unknown =>
+    v instanceof Date ? v.toISOString() : Prisma.Decimal.isDecimal(v) ? Number(v) : (v ?? null);
+  return JSON.stringify(normal(a)) === JSON.stringify(normal(b));
+}
 
 const contactLeadSelect = {
   id: true,
@@ -154,6 +194,7 @@ export const dealService = {
         lead: { select: { id: true, name: true, email: true, phone: true, company: true } },
         assignedUser: { select: { id: true, name: true, email: true } },
         company: { select: { id: true, name: true, phone: true } },
+        demanda: demandaDoNegocio,
       },
     });
 
@@ -241,6 +282,9 @@ export const dealService = {
         include: {
           lead: { select: { id: true, name: true, email: true } },
           assignedUser: { select: { id: true, name: true, email: true } },
+          demanda: {
+            select: { id: true, flowCardId: true, valorEnviado: true, valorAprovado: true },
+          },
         },
         orderBy: { [sortField]: sortOrder },
         skip,
@@ -260,8 +304,40 @@ export const dealService = {
     };
   },
 
-  async update(tenantId: string, data: UpdateDealData) {
-    const existing = await this.findById(tenantId, data.id);
+  /**
+   * `leitura`, se vier, recebe o estado com que a edição foi comparada: em Negócio com Demanda, o
+   * lido sob a trava da demanda; nos outros, o lido no início. A rota usa para a auditoria e o
+   * gatilho de etapa verem só o que a edição mudou.
+   */
+  async update(tenantId: string, pedido: UpdateDealData, leitura?: { antes?: Deal }) {
+    const existing = await this.findById(tenantId, pedido.id);
+
+    // E-16: a tela de edição manda o formulário inteiro, então só recusa o que mudaria.
+    if (existing.demanda) {
+      const mudaria =
+        (pedido.stage !== undefined && pedido.stage !== existing.stage) ||
+        (pedido.funnelId !== undefined && pedido.funnelId !== existing.funnelId) ||
+        (pedido.funnelColumnId !== undefined &&
+          pedido.funnelColumnId !== existing.funnelColumnId) ||
+        (pedido.lostReason !== undefined &&
+          (pedido.lostReason || null) !== (existing.lostReason || null)) ||
+        (pedido.value !== undefined &&
+          valorControladoPeloFlow(existing.demanda) &&
+          Number(pedido.value) !== Number(existing.value));
+      if (mudaria) recusarAndamentoManual();
+    }
+    // Passada a guarda, o andamento de um Negócio com Demanda não sai desta edição: etapa, funil,
+    // coluna e motivo iguais aos atuais não são gravados, e nada se deriva deles (probabilidade,
+    // `closedAt`, status, ganchos de etapa). Os eventos do Flow gravam o andamento.
+    const data: UpdateDealData = existing.demanda
+      ? {
+          ...pedido,
+          stage: undefined,
+          funnelId: undefined,
+          funnelColumnId: undefined,
+          lostReason: undefined,
+        }
+      : pedido;
 
     const stage = data.stage ?? existing.stage;
     // Auto-update probability when stage changes and probability wasn't explicitly set
@@ -336,6 +412,22 @@ export const dealService = {
       }
     });
 
+    // Negócio da Captura: a edição grava só o que ela muda em relação ao que leu. A tela manda o
+    // formulário inteiro, e regravar um campo igual cobriria o que um evento do Flow ou a Captura
+    // gravou no meio (valor, probabilidade, responsável). `Deal.value` não sai deste UPDATE: se o
+    // valor mudou, vai pelo registro fora do Flow, sob a trava da demanda, na mesma transação.
+    const valorMudou =
+      !!existing.demanda &&
+      data.value !== undefined &&
+      Number(data.value) !== Number(existing.value);
+    if (existing.demanda) {
+      delete updateData.value;
+      const lido = existing as unknown as Record<string, unknown>;
+      for (const campo of Object.keys(updateData)) {
+        if (mesmoValor(updateData[campo], lido[campo])) delete updateData[campo];
+      }
+    }
+
     // Tenant-safe update: verify ownership before updating
     const verified = await prisma.deal.findFirst({
       where: { id: data.id, tenantId, deletedAt: null },
@@ -352,18 +444,48 @@ export const dealService = {
       });
     }
 
-    const deal = await prisma.deal.update({
-      where: { id: data.id },
-      data: updateData,
-      include: {
-        lead: { select: { id: true, name: true, email: true, phone: true, company: true } },
-        assignedUser: { select: { id: true, name: true, email: true } },
-      },
-    });
+    const gravar = (cliente: Pick<typeof prisma, 'deal'>) =>
+      cliente.deal.update({
+        where: { id: data.id },
+        data: updateData,
+        include: {
+          lead: { select: { id: true, name: true, email: true, phone: true, company: true } },
+          assignedUser: { select: { id: true, name: true, email: true } },
+          // A tela troca o estado por esta resposta: sem a demanda, perderia a trava do Flow.
+          demanda: demandaDoNegocio,
+        },
+      });
+
+    // Os ganchos de etapa e de coluna comparam com `anterior`. Em Negócio com Demanda, é o estado
+    // lido sob a trava, e não o do início: o que um evento mudou no meio não conta como edição.
+    let anterior: Deal = existing;
+    let deal: Awaited<ReturnType<typeof gravar>>;
+    if (existing.demanda) {
+      // Uma transação que começa travando a demanda, a mesma trava dos eventos, e só então
+      // confere e grava. Decisão de 03/11: valor editado à mão, antes de o Flow informar valor,
+      // vira o valor fora do Flow; o registro confere sob a trava e recusa com 403 se um evento
+      // trouxe valor nesse meio.
+      const { escreverNoNegocioDaDemanda, registrarValorForaDoFlow } =
+        await import('./captura/demandaService.js');
+      const valor = Number(data.value);
+      const feito = await escreverNoNegocioDaDemanda(tenantId, data.id, async (tx) => {
+        const antes = await tx.deal.findFirst({
+          where: { id: data.id, tenantId, deletedAt: null },
+        });
+        if (!antes) throw createError('Deal not found', 404, 'DEAL_NOT_FOUND');
+        if (valorMudou) await registrarValorForaDoFlow(tx, tenantId, data.id, async () => valor);
+        return { antes, deal: await gravar(tx) };
+      });
+      anterior = feito.antes;
+      deal = feito.deal;
+    } else {
+      deal = await gravar(prisma);
+    }
+    if (leitura) leitura.antes = anterior;
 
     // HOOK A — Stage History tracking
     const newStage = deal.stage;
-    if (existing.stage !== newStage) {
+    if (anterior.stage !== newStage) {
       await prisma.dealStageHistory
         .updateMany({
           where: { dealId: data.id, exitedAt: null },
@@ -378,7 +500,7 @@ export const dealService = {
     }
 
     // HOOK B — Auto-task creation on funnel column change
-    if (existing.funnelColumnId !== deal.funnelColumnId && deal.funnelColumnId) {
+    if (anterior.funnelColumnId !== deal.funnelColumnId && deal.funnelColumnId) {
       prisma.stageTaskTemplate
         .findMany({
           where: { funnelColumnId: deal.funnelColumnId },
@@ -475,6 +597,7 @@ export const dealService = {
 
   async markWon(tenantId: string, id: string) {
     const existing = await this.findById(tenantId, id);
+    if (existing.demanda) recusarAndamentoManual();
     const deal = await prisma.deal.update({
       where: { id },
       data: {
@@ -507,7 +630,8 @@ export const dealService = {
   },
 
   async markLost(tenantId: string, id: string, lostReasonId: string) {
-    await this.findById(tenantId, id);
+    const existing = await this.findById(tenantId, id);
+    if (existing.demanda) recusarAndamentoManual();
     const reason = await prisma.lostReason.findFirst({ where: { id: lostReasonId, tenantId } });
     if (!reason) {
       throw createError('Motivo de perda inválido', 400, 'INVALID_LOST_REASON');
@@ -532,7 +656,8 @@ export const dealService = {
   },
 
   async pause(tenantId: string, id: string) {
-    await this.findById(tenantId, id);
+    const existing = await this.findById(tenantId, id);
+    if (existing.demanda) recusarAndamentoManual();
     const deal = await prisma.deal.update({
       where: { id },
       data: { status: DealStatus.PAUSED, pausedAt: new Date() },
@@ -543,7 +668,8 @@ export const dealService = {
   },
 
   async resume(tenantId: string, id: string) {
-    await this.findById(tenantId, id);
+    const existing = await this.findById(tenantId, id);
+    if (existing.demanda) recusarAndamentoManual();
     const deal = await prisma.deal.update({
       where: { id },
       data: { status: DealStatus.OPEN, pausedAt: null },
@@ -590,10 +716,15 @@ export const dealService = {
 
   async delete(tenantId: string, id: string) {
     // Tenant-safe delete: verify ownership before deleting
-    const deal = await prisma.deal.findFirst({ where: { id, tenantId, deletedAt: null } });
+    const deal = await prisma.deal.findFirst({
+      where: { id, tenantId, deletedAt: null },
+      include: { demanda: { select: { id: true } } },
+    });
     if (!deal) {
       throw createError('Deal not found', 404, 'DEAL_NOT_FOUND');
     }
+    // Descartar é um estado que vem do Flow (E-17), não uma exclusão manual.
+    if (deal.demanda) recusarAndamentoManual();
     await prisma.deal.update({ where: { id }, data: { deletedAt: new Date() } });
 
     // Emit Socket.IO event for real-time cache updates
@@ -648,7 +779,13 @@ export const dealService = {
 
         // Won deals with closedAt for cycle time calculation (lightweight select)
         prisma.deal.findMany({
-          where: { tenantId, deletedAt: null, stage: DealStage.WON, closedAt: { not: null }, ...scope },
+          where: {
+            tenantId,
+            deletedAt: null,
+            stage: DealStage.WON,
+            closedAt: { not: null },
+            ...scope,
+          },
           select: { createdAt: true, closedAt: true },
         }),
       ]);

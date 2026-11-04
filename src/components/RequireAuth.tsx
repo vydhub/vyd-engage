@@ -1,6 +1,7 @@
 import { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
+import { guardarDestino } from '../utils/destinoAposLogin';
 import { Loader2 } from 'lucide-react';
 
 interface RequireAuthProps {
@@ -22,6 +23,8 @@ export function RequireAuth({ children, requiredRoles }: RequireAuthProps) {
   }
 
   if (!user) {
+    // O login passa pelo VYD ID, e `state` não sobrevive à ida e volta (E-20).
+    guardarDestino(location.pathname + location.search);
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
