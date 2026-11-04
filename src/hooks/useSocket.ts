@@ -1,15 +1,19 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { apiClient } from '../services/api/client';
 
-// Em produção VITE_API_URL é a PRÓPRIA origem do frontend
-// (https://engage.vydhub.com). Isso é intencional: o vercel.json proxia /api e
-// /socket.io até o Railway, mantendo tudo same-origin — é o que faz o cookie
-// httpOnly `accessToken` chegar ao handshake (server/src/services/socketService.ts).
-// NÃO troque para a URL do Railway: os cookies são host-only (sem `domain`, em
-// server/src/utils/cookies.ts), o browser não os enviaria para outro host e o
-// handshake seria recusado. Pior, o CSRF é double-submit lido de document.cookie
-// (src/services/api/client.ts) e toda escrita do app passaria a dar 403.
-const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+// Mesma base da API (apiClient): VITE_API_URL quando definida, senão a própria
+// origem da página, e localhost:3001 em dev. Em produção VITE_API_URL é a
+// PRÓPRIA origem do frontend (https://engage.vydhub.com); nos previews da Vercel
+// ela não existe e vale a origem do preview. Isso é intencional: o vercel.json
+// proxia /api e /socket.io até o Railway, mantendo tudo same-origin — é o que
+// faz o cookie httpOnly `accessToken` chegar ao handshake
+// (server/src/services/socketService.ts). NÃO troque para a URL do Railway: os
+// cookies são host-only (sem `domain`, em server/src/utils/cookies.ts), o
+// browser não os enviaria para outro host e o handshake seria recusado. Pior, o
+// CSRF é double-submit lido de document.cookie (src/services/api/client.ts) e
+// toda escrita do app passaria a dar 403.
+const SOCKET_URL = apiClient.getApiUrl();
 
 let sharedSocket: Socket | null = null;
 let refCount = 0;

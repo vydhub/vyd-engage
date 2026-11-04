@@ -19,8 +19,8 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { VYDEcosystemBanner } from '../components/VYDEcosystemBanner';
 import { ArrowLeft, Shield } from 'lucide-react';
+import { vydIdHandoffUrl } from '../lib/vydId';
 
-const VYD_ID_URL = 'https://id.vydhub.com';
 const REQUEST_ACCESS_URL =
   'https://pbtwlevrsenltnorgbpz.supabase.co/functions/v1/request-access';
 
@@ -92,7 +92,7 @@ export function Login() {
             )}
 
             <Button asChild className="w-full">
-              <a href={VYD_ID_URL}>Entrar com VYD ID</a>
+              <a href={vydIdHandoffUrl()}>Entrar com VYD ID</a>
             </Button>
 
             <div className="mt-4">
