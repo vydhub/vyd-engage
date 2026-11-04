@@ -183,8 +183,8 @@ function autoDetectMapping(headers: string[]): ColumnMapping {
 }
 
 function downloadTemplate() {
-  const headers =
-    'name,email,phone,company,source,status,company_cnpj,contact_email,contact_name,position,status_reason,status_reason_note,notes,estimated_value,estimated_timeline,probability_go_get,assigned_to_email';
+  // prettier-ignore
+  const headers = 'name,email,phone,company,source,status,company_cnpj,contact_email,contact_name,position,status_reason,status_reason_note,notes,estimated_value,estimated_timeline,probability_go_get,assigned_to_email';
   const example =
     'Maria Silva,maria@email.com,(11)99999-0000,ABC Ltda,Prospecção ativa,Novo,12.345.678/0001-90,joao@abc.com.br,João Souza,Diretor Comercial,,,"Cliente pediu proposta até dezembro","50000,00",2º semestre de 2026,70,vendedor@suaempresa.com';
   // BOM: o Excel só lê os acentos do exemplo como UTF-8 com ele.
