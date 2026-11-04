@@ -89,4 +89,26 @@ describe('LeadImportModal', () => {
     await screen.findByText(/Confirmar Importacao/);
     expect(screen.queryByTestId('aviso-vinculos')).not.toBeInTheDocument();
   });
+
+  it('reconhece os rótulos em português da tela e não confunde "E-mail do contato" com o e-mail do lead', async () => {
+    api.importLeads.mockResolvedValue({ imported: 1, skipped: 0, failed: 0, errors: [] });
+    await abrirComArquivo(
+      [
+        'Nome da oportunidade;Empresa;E-mail do contato;E-mail;Valor estimado (Budget);Probabilidade Go×Get',
+        'Proposta ABC;ABC Ltda;joao@abc.com.br;lead@abc.com.br;"1.234,56";70',
+      ].join('\n')
+    );
+    fireEvent.click(screen.getByText('Continuar'));
+    fireEvent.click(await screen.findByText(/Confirmar Importacao/));
+
+    await waitFor(() => expect(api.importLeads).toHaveBeenCalled());
+    expect(api.importLeads.mock.calls[0][0].leads[0]).toEqual({
+      name: 'Proposta ABC',
+      company: 'ABC Ltda',
+      contact_email: 'joao@abc.com.br',
+      email: 'lead@abc.com.br',
+      estimated_value: '1.234,56',
+      probability_go_get: '70',
+    });
+  });
 });
