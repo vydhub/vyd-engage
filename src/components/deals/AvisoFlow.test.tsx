@@ -53,3 +53,58 @@ describe('AvisoFlow (spec captura-demandas, E-16)', () => {
     expect(screen.queryByRole('textbox')).toBeNull();
   });
 });
+
+describe('AvisoFlow: situação no portal (spec captura-demandas, filha 08, W-39)', () => {
+  it('mostra a situação e desde quando, no formato das datas da tela', () => {
+    const desde = '2026-11-20T13:00:00Z';
+    render(
+      <AvisoFlow
+        demanda={{
+          id: 'd',
+          flowCardId: 'c',
+          situacaoOrigem: 'Aguardando revisão',
+          situacaoOrigemEm: desde,
+        }}
+      />
+    );
+    const formatada = new Date(desde).toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    const linha = screen.getByText(/Situação no portal/);
+    expect(linha.textContent).toBe(`Situação no portal: Aguardando revisão desde ${formatada}`);
+    expect(linha.textContent).toContain('20/11/2026');
+    expect(linha.className).toContain('text-foreground');
+  });
+
+  it('sem a data, mostra só o texto', () => {
+    render(
+      <AvisoFlow
+        demanda={{ id: 'd', flowCardId: 'c', situacaoOrigem: 'Em análise', situacaoOrigemEm: null }}
+      />
+    );
+    expect(screen.getByText(/Situação no portal/).textContent).toBe(
+      'Situação no portal: Em análise'
+    );
+  });
+
+  it('nada aparece quando a situação está vazia', () => {
+    const { unmount } = render(<AvisoFlow demanda={{ id: 'd', flowCardId: 'c' }} />);
+    expect(screen.queryByText(/Situação no portal/)).toBeNull();
+    unmount();
+    render(
+      <AvisoFlow
+        demanda={{
+          id: 'd',
+          flowCardId: 'c',
+          situacaoOrigem: '   ',
+          situacaoOrigemEm: '2026-11-20T13:00:00Z',
+        }}
+      />
+    );
+    expect(screen.queryByText(/Situação no portal/)).toBeNull();
+  });
+});

@@ -5504,4 +5504,126 @@ describe.runIf(ligado)('Captura de Demandas em banco real', () => {
       ).toEqual(['stage', 'probability']);
     }, 60_000);
   });
+
+  // ── Situação no portal (filha 08, W-39) ──────────────────────────────────────
+
+  describe('situação no portal (filha 08, W-39)', () => {
+    const patch = (id: string, corpo: Record<string, unknown>) =>
+      request(app)
+        .patch(`/api/v1/captura/demandas/${id}`)
+        .set('X-API-Key', chaveEscrita)
+        .send(corpo);
+    const demandaDo = (dealId: string) => prisma.demanda.findUniqueOrThrow({ where: { dealId } });
+
+    it('POST grava a situação quando vem; sem os campos, ou com eles nulos, fica nula', async () => {
+      const com = await criarDemanda(corpoDemanda(fixtures.engage_atualizar_situacao_origem));
+      expect(com.status).toBe(201);
+      const comSituacao = await demandaDo(com.body.engage_id);
+      expect(comSituacao.situacaoOrigem).toBe('Aguardando revisão');
+      expect(comSituacao.situacaoOrigemEm?.toISOString()).toBe('2026-11-20T13:00:00.000Z');
+      expect(comSituacao.estado).toBe('recebida');
+
+      // `corpoDemanda` não traz os campos: o corpo de antes da emenda continua aceito.
+      const sem = await criarDemanda(corpoDemanda());
+      expect(sem.status).toBe(201);
+      const semSituacao = await demandaDo(sem.body.engage_id);
+      expect(semSituacao.situacaoOrigem).toBeNull();
+      expect(semSituacao.situacaoOrigemEm).toBeNull();
+
+      // A fixture do contrato traz os dois campos nulos.
+      const contrato = await novoContrato();
+      const nulos = await criarDemanda({
+        ...fixtures.engage_criar_demanda,
+        chave_dedup: `email:<${unico('fixture-situacao')}@exemplo.com>`,
+        cliente_id: empresa.id,
+        contrato_id: contrato.id,
+      });
+      expect(nulos.status).toBe(201);
+      const comNulos = await demandaDo(nulos.body.engage_id);
+      expect(comNulos.situacaoOrigem).toBeNull();
+      expect(comNulos.situacaoOrigemEm).toBeNull();
+    });
+
+    it('PATCH grava a situação sem mudar etapa, estado, coluna nem histórico', async () => {
+      const corpo = corpoDemanda();
+      const { body } = await criarDemanda(corpo);
+      const id = body.engage_id as string;
+      await assinarEPostar(evento(corpo.chave_dedup, 'em_triagem', '2026-11-20T15:00:00Z'));
+      const incluir = { demanda: true, stageHistory: true } as const;
+      const antes = await prisma.deal.findUniqueOrThrow({ where: { id }, include: incluir });
+      expect(antes.demanda?.estado).toBe('em_triagem');
+
+      const res = await patch(id, fixtures.engage_atualizar_situacao_origem);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ engage_id: id, engage_link: body.engage_link });
+
+      const depois = await prisma.deal.findUniqueOrThrow({ where: { id }, include: incluir });
+      expect(depois.demanda?.situacaoOrigem).toBe('Aguardando revisão');
+      expect(depois.demanda?.situacaoOrigemEm?.toISOString()).toBe('2026-11-20T13:00:00.000Z');
+      expect(depois.demanda?.estado).toBe('em_triagem');
+      expect(depois.demanda?.ultimoEventoEm).toEqual(antes.demanda?.ultimoEventoEm);
+      expect(depois.demanda?.triagemEm).toEqual(antes.demanda?.triagemEm);
+      // O Negócio não é tocado: etapa, status, probabilidade, funil e coluna ficam como estavam.
+      expect(depois.stage).toBe(antes.stage);
+      expect(depois.status).toBe(antes.status);
+      expect(depois.probability).toBe(antes.probability);
+      expect(depois.funnelId).toBe(antes.funnelId);
+      expect(depois.funnelColumnId).toBe(antes.funnelColumnId);
+      expect(depois.updatedAt).toEqual(antes.updatedAt);
+      expect(depois.stageHistory.map((h) => h.id).sort()).toEqual(
+        antes.stageHistory.map((h) => h.id).sort()
+      );
+      expect(await prisma.demandaEvento.count({ where: { demandaId: antes.demanda!.id } })).toBe(1);
+
+      // Só o texto: a data fica como estava.
+      expect((await patch(id, { situacao_origem: 'Em análise' })).status).toBe(200);
+      const soTexto = await demandaDo(id);
+      expect(soTexto.situacaoOrigem).toBe('Em análise');
+      expect(soTexto.situacaoOrigemEm?.toISOString()).toBe('2026-11-20T13:00:00.000Z');
+
+      // Nulos limpam, e o estado segue o do Flow.
+      expect((await patch(id, { situacao_origem: null, situacao_origem_em: null })).status).toBe(
+        200
+      );
+      const limpa = await demandaDo(id);
+      expect(limpa.situacaoOrigem).toBeNull();
+      expect(limpa.situacaoOrigemEm).toBeNull();
+      expect(limpa.estado).toBe('em_triagem');
+    });
+
+    it('situação com mais de 200 caracteres dá 422 com o campo, e nada é gravado', async () => {
+      const longo = 'x'.repeat(201);
+      const corpoLongo = corpoDemanda({ situacao_origem: longo });
+      const post = await criarDemanda(corpoLongo);
+      expect(post.status).toBe(422);
+      expect(post.body.codigo).toBe('DADOS_INVALIDOS');
+      expect(post.body.campo).toBe('situacao_origem');
+      expect(
+        await prisma.demanda.count({
+          where: { tenantId: base.tenant.id, chaveDedup: corpoLongo.chave_dedup },
+        })
+      ).toBe(0);
+
+      const { body } = await criarDemanda(corpoDemanda());
+      const res = await patch(body.engage_id, {
+        situacao_origem: longo,
+        situacao_origem_em: '2026-11-20T13:00:00Z',
+      });
+      expect(res.status).toBe(422);
+      expect(res.body.campo).toBe('situacao_origem');
+      const demanda = await demandaDo(body.engage_id);
+      expect(demanda.situacaoOrigem).toBeNull();
+      expect(demanda.situacaoOrigemEm).toBeNull();
+    });
+
+    it('a tela do Negócio recebe a situação e a data', async () => {
+      const { body } = await criarDemanda(corpoDemanda(fixtures.engage_atualizar_situacao_origem));
+      const res = await request(app)
+        .get(`/api/v1/deals/${body.engage_id}`)
+        .set('Authorization', base.sessaoAdmin);
+      expect(res.status).toBe(200);
+      expect(res.body.demanda.situacaoOrigem).toBe('Aguardando revisão');
+      expect(res.body.demanda.situacaoOrigemEm).toBe('2026-11-20T13:00:00.000Z');
+    });
+  });
 });

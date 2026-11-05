@@ -3646,6 +3646,10 @@ model Demanda {
   contratoId       String?
   contrato         Contrato?      @relation(fields: [contratoId], references: [id], onDelete: NoAction)
   linkOriginal     String?
+  /// W-39 (filha 08): a situação do item no portal do cliente e desde quando, como a Captura
+  /// a acompanha. Só informa: não muda etapa nem estado.
+  situacaoOrigem   String?
+  situacaoOrigemEm DateTime?
   ultimoEventoEm   DateTime?
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt

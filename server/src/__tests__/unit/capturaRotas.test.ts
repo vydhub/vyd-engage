@@ -271,6 +271,67 @@ describe('POST /captura/demandas (E-13)', () => {
     expect(res.status).toBe(500);
     expect(res.body).toEqual({ codigo: 'ERRO_INTERNO', mensagem: 'Erro interno' });
   });
+
+  describe('situação no portal (filha 08, W-39)', () => {
+    beforeEach(() => {
+      vi.mocked(criarDemanda).mockResolvedValue(fixtures.engage_criar_demanda_resposta);
+    });
+
+    it('a fixture traz os dois campos nulos, e eles chegam nulos ao serviço', async () => {
+      expect(fixtures.engage_criar_demanda).toHaveProperty('situacao_origem', null);
+      expect(fixtures.engage_criar_demanda).toHaveProperty('situacao_origem_em', null);
+      const res = await postar(fixtures.engage_criar_demanda);
+      expect(res.status).toBe(201);
+      const entrada = vi.mocked(criarDemanda).mock.calls[0][1];
+      expect(entrada.situacao_origem).toBeNull();
+      expect(entrada.situacao_origem_em).toBeNull();
+    });
+
+    it('sem os campos, o corpo continua aceito', async () => {
+      const {
+        situacao_origem: _situacao,
+        situacao_origem_em: _desde,
+        ...semSituacao
+      } = fixtures.engage_criar_demanda;
+      const res = await postar(semSituacao);
+      expect(res.status).toBe(201);
+      const entrada = vi.mocked(criarDemanda).mock.calls[0][1];
+      expect(entrada).not.toHaveProperty('situacao_origem');
+      expect(entrada).not.toHaveProperty('situacao_origem_em');
+    });
+
+    it('com os campos, chegam ao serviço com a data convertida', async () => {
+      const res = await postar({
+        ...fixtures.engage_criar_demanda,
+        ...fixtures.engage_atualizar_situacao_origem,
+      });
+      expect(res.status).toBe(201);
+      const entrada = vi.mocked(criarDemanda).mock.calls[0][1];
+      expect(entrada.situacao_origem).toBe('Aguardando revisão');
+      expect(entrada.situacao_origem_em).toEqual(new Date('2026-11-20T13:00:00Z'));
+    });
+
+    it.each([
+      ['situacao_origem', { situacao_origem: 'x'.repeat(201) }],
+      ['situacao_origem', { situacao_origem: 42 }],
+      ['situacao_origem_em', { situacao_origem_em: 'ontem' }],
+    ])('dado inválido dá 422 com o campo %s', async (campo, trocar) => {
+      const res = await postar({ ...fixtures.engage_criar_demanda, ...trocar });
+      expect(res.status).toBe(422);
+      expect(res.body.codigo).toBe('DADOS_INVALIDOS');
+      expect(res.body.campo).toBe(campo);
+      expect(criarDemanda).not.toHaveBeenCalled();
+    });
+
+    it('200 caracteres passam', async () => {
+      const res = await postar({
+        ...fixtures.engage_criar_demanda,
+        situacao_origem: 'x'.repeat(200),
+      });
+      expect(res.status).toBe(201);
+      expect(vi.mocked(criarDemanda).mock.calls[0][1].situacao_origem).toHaveLength(200);
+    });
+  });
 });
 
 describe('PATCH /captura/demandas/:engage_id (E-14)', () => {
@@ -301,6 +362,51 @@ describe('PATCH /captura/demandas/:engage_id (E-14)', () => {
     const res = await patch({}, 'abc');
     expect(res.status).toBe(404);
     expect(res.body.codigo).toBe('DEMANDA_NAO_ENCONTRADA');
+  });
+
+  describe('situação no portal (filha 08, W-39)', () => {
+    beforeEach(() => {
+      vi.mocked(atualizarDemanda).mockResolvedValue({ engage_id: id, engage_link: 'l' });
+    });
+
+    it('a fixture engage_atualizar_situacao_origem passa e chega ao serviço só com a situação', async () => {
+      const res = await patch(fixtures.engage_atualizar_situacao_origem);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ engage_id: id, engage_link: 'l' });
+      const entrada = vi.mocked(atualizarDemanda).mock.calls[0][2];
+      expect(entrada).toEqual({
+        situacao_origem: 'Aguardando revisão',
+        situacao_origem_em: new Date('2026-11-20T13:00:00Z'),
+      });
+    });
+
+    it('nulos limpam a situação; os outros campos seguem aceitos como antes', async () => {
+      const card = '77777777-7777-4777-8777-777777777777';
+      const res = await patch({
+        situacao_origem: null,
+        situacao_origem_em: null,
+        flow_card_id: card,
+        estado: 'ganha',
+      });
+      expect(res.status).toBe(200);
+      const entrada = vi.mocked(atualizarDemanda).mock.calls[0][2];
+      expect(entrada).toEqual({
+        situacao_origem: null,
+        situacao_origem_em: null,
+        flow_card_id: card,
+      });
+    });
+
+    it.each([
+      ['situacao_origem', { situacao_origem: 'x'.repeat(201) }],
+      ['situacao_origem_em', { situacao_origem_em: '20/11/2026' }],
+    ])('dado inválido dá 422 com o campo %s, sem chegar ao serviço', async (campo, corpo) => {
+      const res = await patch(corpo);
+      expect(res.status).toBe(422);
+      expect(res.body.codigo).toBe('DADOS_INVALIDOS');
+      expect(res.body.campo).toBe(campo);
+      expect(atualizarDemanda).not.toHaveBeenCalled();
+    });
   });
 });
 
