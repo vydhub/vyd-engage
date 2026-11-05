@@ -181,4 +181,7 @@ export interface DemandaDoNegocio {
   valorEnviado?: number | string | null;
   valorAprovado?: number | string | null;
   linkOriginal?: string | null;
+  /** W-39 (filha 08): situação do item no portal do cliente e desde quando (ISO). */
+  situacaoOrigem?: string | null;
+  situacaoOrigemEm?: string | null;
 }

@@ -66,6 +66,8 @@ const linkOriginal = z
   .url()
   .refine(semNul, CARACTERE_INVALIDO)
   .refine((valor) => /^https?:\/\//i.test(valor), 'Use um link http ou https');
+// W-39 (filha 08): a situação do item no portal do cliente. Só informa: não muda etapa nem estado.
+const situacaoOrigem = z.string().trim().max(200).refine(semNul, CARACTERE_INVALIDO);
 
 const criarSchema = z.object({
   chave_dedup: chaveDedup,
@@ -82,6 +84,8 @@ const criarSchema = z.object({
   flow_card_id: uuid.nullable().optional(),
   link_original: linkOriginal.nullable().optional(),
   responsavel_email: emailMinusculo.nullable().optional(),
+  situacao_origem: situacaoOrigem.nullable().optional(),
+  situacao_origem_em: dataIso.nullable().optional(),
 });
 
 const atualizarSchema = z.object({
@@ -91,6 +95,8 @@ const atualizarSchema = z.object({
   cenario: z.nativeEnum(DemandaCenario).optional(),
   contrato_id: uuid.nullable().optional(),
   responsavel_email: emailMinusculo.nullable().optional(),
+  situacao_origem: situacaoOrigem.nullable().optional(),
+  situacao_origem_em: dataIso.nullable().optional(),
   adendo: z
     .object({
       texto: z.string().transform(tirarNul).pipe(z.string().trim().min(1)),

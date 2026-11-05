@@ -17,10 +17,23 @@ function linkSeguro(link: string | null | undefined): string | null {
   return link && /^https?:\/\//i.test(link) ? link : null;
 }
 
+/** Mesmo formato das outras datas da tela do Negócio (`formatDate` em DealDetail). */
+function formatarData(dataIso: string): string {
+  return new Date(dataIso).toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export function AvisoFlow({ demanda }: { demanda: DemandaDoNegocio }) {
   const original = linkSeguro(demanda.linkOriginal);
   const enviado = demanda.valorEnviado != null ? Number(demanda.valorEnviado) : null;
   const aprovado = demanda.valorAprovado != null ? Number(demanda.valorAprovado) : null;
+  // W-39 (filha 08): só informa a situação no portal do cliente; o andamento segue vindo do Flow.
+  const situacao = demanda.situacaoOrigem?.trim() || null;
 
   return (
     <div
@@ -41,6 +54,12 @@ export function AvisoFlow({ demanda }: { demanda: DemandaDoNegocio }) {
               {enviado !== null && <>Valor enviado: {formatCurrency(enviado)}</>}
               {enviado !== null && aprovado !== null && ' · '}
               {aprovado !== null && <>Valor aprovado: {formatCurrency(aprovado)}</>}
+            </p>
+          )}
+          {situacao && (
+            <p className="text-xs text-foreground mt-1">
+              Situação no portal: {situacao}
+              {demanda.situacaoOrigemEm && <> desde {formatarData(demanda.situacaoOrigemEm)}</>}
             </p>
           )}
         </div>

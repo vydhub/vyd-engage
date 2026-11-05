@@ -68,6 +68,8 @@ const demandaDoNegocio = {
     valorEnviado: true,
     valorAprovado: true,
     linkOriginal: true,
+    situacaoOrigem: true,
+    situacaoOrigemEm: true,
   },
 } as const;
 

@@ -19,7 +19,13 @@
     "valor_estimado": 85000.00,
     "flow_card_id": null,
     "link_original": null,
-    "responsavel_email": "gerente@exemplo.com"
+    "responsavel_email": "gerente@exemplo.com",
+    "situacao_origem": null,
+    "situacao_origem_em": null
+  },
+  "engage_atualizar_situacao_origem": {
+    "situacao_origem": "Aguardando revisão",
+    "situacao_origem_em": "2026-11-20T13:00:00Z"
   },
   "engage_criar_demanda_resposta": {
     "engage_id": "55555555-5555-4555-8555-555555555555",
@@ -49,6 +55,7 @@
     "original_flow_card_id": null,
     "cenario_novo": null,
     "cliente_id": null,
+    "cliente_nome": null,
     "contrato_id": null,
     "novo_flow_card_id": null,
     "ocorrido_em": "2026-11-20T15:00:00Z",
@@ -65,6 +72,7 @@
     "original_flow_card_id": null,
     "cenario_novo": "contrato_novo",
     "cliente_id": "33333333-3333-4333-8333-333333333333",
+    "cliente_nome": "Cliente Exemplo",
     "contrato_id": null,
     "novo_flow_card_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
     "ocorrido_em": "2026-11-20T15:10:00Z",
@@ -149,7 +157,13 @@
     "prazos": { "prazo_proposta": "2026-11-24T17:00:00Z", "visita_tecnica": null, "prazo_esclarecimentos": null, "sla": "2026-11-24T17:00:00Z" },
     "engage": { "id": null, "link": null },
     "motivo_incerto": null,
-    "provavel_original": null
+    "provavel_original": null,
+    "situacao_origem": null,
+    "situacao_origem_em": null
+  },
+  "painel_situacao_origem": {
+    "situacao_origem": "Aguardando revisão",
+    "situacao_origem_em": "2026-11-20T13:00:00Z"
   },
   "contratos_lista": {
     "itens": [

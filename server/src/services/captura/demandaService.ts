@@ -50,6 +50,8 @@ export interface CriarDemandaEntrada {
   flow_card_id?: string | null;
   link_original?: string | null;
   responsavel_email?: string | null;
+  situacao_origem?: string | null;
+  situacao_origem_em?: Date | null;
 }
 
 export interface AtualizarDemandaEntrada {
@@ -59,6 +61,8 @@ export interface AtualizarDemandaEntrada {
   cenario?: DemandaCenario;
   contrato_id?: string | null;
   responsavel_email?: string | null;
+  situacao_origem?: string | null;
+  situacao_origem_em?: Date | null;
   adendo?: { texto: string; em?: Date | null };
 }
 
@@ -404,6 +408,8 @@ export async function criarDemanda(tenantId: string, entrada: CriarDemandaEntrad
           contratoId,
           linkOriginal: entrada.link_original ?? null,
           valorEstimado: entrada.valor_estimado ?? null,
+          situacaoOrigem: entrada.situacao_origem ?? null,
+          situacaoOrigemEm: entrada.situacao_origem_em ?? null,
         },
       });
       await tx.dealStageHistory.create({
@@ -505,6 +511,13 @@ export async function atualizarDemanda(
         data: {
           ...(entrada.flow_card_id !== undefined ? { flowCardId: entrada.flow_card_id } : {}),
           ...(entrada.link_original !== undefined ? { linkOriginal: entrada.link_original } : {}),
+          // W-39: a situação no portal só informa; não passa por etapa nem por estado.
+          ...(entrada.situacao_origem !== undefined
+            ? { situacaoOrigem: entrada.situacao_origem }
+            : {}),
+          ...(entrada.situacao_origem_em !== undefined
+            ? { situacaoOrigemEm: entrada.situacao_origem_em }
+            : {}),
           cenario: cenarioFinal,
           contratoId: contratoFinal,
         },
