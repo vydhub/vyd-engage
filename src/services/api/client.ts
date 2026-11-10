@@ -689,7 +689,12 @@ class ApiClient {
   }
 
   async importLeads(data: { leads: Record<string, unknown>[]; skipDuplicateEmails?: boolean }) {
-    return this.request<{ imported: number; skipped: number }>('/api/v1/leads/import', {
+    return this.request<{
+      imported: number;
+      skipped: number;
+      failed: number;
+      errors: { row: number; error: string }[];
+    }>('/api/v1/leads/import', {
       method: 'POST',
       body: JSON.stringify(data),
     });

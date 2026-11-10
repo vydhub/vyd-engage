@@ -144,7 +144,10 @@ export const leadService = {
   async create(tenantId: string, data: CreateLeadData) {
     // Coerência dos vínculos e do motivo (quando informados). A obrigatoriedade
     // de companyId/contactId na criação MANUAL é imposta pelo Zod da rota
-    // (createLeadSchema); captação pública/import criam sem vínculo (caso 5).
+    // (createLeadSchema). A importação pela tela de Leads (POST /leads/import)
+    // também passa a EXIGIR o vínculo (FRG-178, decisão que contraria o caso 5
+    // da spec leads-oportunidade); continuam criando sem vínculo a captação
+    // pública e a tela "Importar Dados" (importService).
     await assertOpportunityLinks(tenantId, data.companyId, data.contactId);
     const status = data.status || LeadStatus.NOVO;
     if (data.status && TERMINAL_LEAD_STATUSES.includes(data.status)) {
