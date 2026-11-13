@@ -231,5 +231,48 @@
   "console_envelope": {
     "usuario": { "email": "config@exemplo.com", "papel": "configurador" },
     "dados": { "versao_base": 3, "regras": { "limiar": { "cenario": 0.85 } } }
+  },
+  "flow_catalogo": {
+    "pipes": [
+      {
+        "pipe_id": "70000000-0000-4000-8000-000000000002",
+        "nome": "Abertura de Contratos",
+        "papel": "fora",
+        "cenario": null,
+        "origem_ligada": false,
+        "versao": null,
+        "fases": [
+          { "phase_id": "70000000-0000-4000-8000-000000000021", "nome": "Cadastro", "posicao": 0, "situacao": null, "acao": null }
+        ],
+        "campos": [
+          { "field_id": "70000000-0000-4000-8000-000000000041", "nome": "Cadastrar contrato no banco de dados", "tipo": "connection", "obrigatorio": true, "onde": "70000000-0000-4000-8000-000000000021", "opcoes": [], "conexao": { "database_id": "70000000-0000-4000-8000-000000000051", "nome": "Contratos" }, "significados": [], "obsoleto": false, "fora_da_regra": null }
+        ],
+        "criterio": null,
+        "alertas": []
+      },
+      {
+        "pipe_id": "70000000-0000-4000-8000-000000000001",
+        "nome": "Solicitação de Propostas Técnicas",
+        "papel": "destino",
+        "cenario": "chamado_lta",
+        "origem_ligada": true,
+        "versao": null,
+        "fases": [
+          { "phase_id": "70000000-0000-4000-8000-000000000011", "nome": "Aceite do gerente", "posicao": 0, "situacao": "em_triagem", "acao": "triagem" },
+          { "phase_id": "70000000-0000-4000-8000-000000000012", "nome": "Enviar Proposta para o Cliente", "posicao": 1, "situacao": "em_orcamento", "acao": "avanco" },
+          { "phase_id": "70000000-0000-4000-8000-000000000013", "nome": "Cancelados", "posicao": 2, "situacao": "cancelada", "acao": "cancelamento" },
+          { "phase_id": "70000000-0000-4000-8000-000000000014", "nome": "Help", "posicao": 3, "situacao": null, "acao": null }
+        ],
+        "campos": [
+          { "field_id": "70000000-0000-4000-8000-000000000031", "nome": "Titulo da proposta", "tipo": "text", "obrigatorio": true, "onde": "formulario_inicial", "opcoes": [], "conexao": null, "significados": ["objeto"], "obsoleto": false, "fora_da_regra": null },
+          { "field_id": "70000000-0000-4000-8000-000000000032", "nome": "Valor da proposta inicial", "tipo": "currency", "obrigatorio": true, "onde": "formulario_inicial", "opcoes": [], "conexao": null, "significados": ["valor_aprovado", "valor_estimado"], "obsoleto": false, "fora_da_regra": null },
+          { "field_id": "70000000-0000-4000-8000-000000000033", "nome": "Contrato", "tipo": "connection", "obrigatorio": true, "onde": "formulario_inicial", "opcoes": [], "conexao": { "database_id": "70000000-0000-4000-8000-000000000051", "nome": "Contratos" }, "significados": ["contrato_flow_record_id"], "obsoleto": false, "fora_da_regra": null },
+          { "field_id": "70000000-0000-4000-8000-000000000034", "nome": "Detalhe da \"OS\"", "tipo": "radio", "obrigatorio": true, "onde": "formulario_inicial", "opcoes": ["Sim", "Não"], "conexao": null, "significados": [], "obsoleto": false, "fora_da_regra": null },
+          { "field_id": "70000000-0000-4000-8000-000000000035", "nome": "Cliente informado", "tipo": "number", "obrigatorio": false, "onde": "70000000-0000-4000-8000-000000000012", "opcoes": [], "conexao": null, "significados": ["cliente_nome"], "obsoleto": false, "fora_da_regra": "Cliente só aceita campo de texto ou de texto longo" }
+        ],
+        "criterio": null,
+        "alertas": []
+      }
+    ]
   }
 }
