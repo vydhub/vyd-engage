@@ -355,5 +355,113 @@
         "origem": { "ligada": true, "cenario": "chamado_lta" }
       }
     ]
+  },
+  "flow_criterio": {
+    "gatilho": { "tipo": "fase", "fases": ["70000000-0000-4000-8000-000000000012"] },
+    "quem_criou": ["pessoa", "formulario", "outra"],
+    "condicoes": [
+      { "campo": "70000000-0000-4000-8000-000000000034", "operador": "um_de", "valor": ["Sim"] },
+      { "campo": "titulo", "operador": "nao_contem", "valor": "teste" },
+      { "campo": "70000000-0000-4000-8000-000000000032", "operador": "entre", "valor": [1000, 50000] }
+    ]
+  },
+  "flow_catalogo_criterio": {
+    "pipes": [
+      {
+        "pipe_id": "70000000-0000-4000-8000-000000000001",
+        "nome": "Solicitação de Propostas Técnicas",
+        "papel": "destino",
+        "cenario": "chamado_lta",
+        "origem_ligada": true,
+        "versao": { "numero": 3, "autor_email": "migração", "em": "2026-11-14T12:00:00+00:00" },
+        "fases": [
+          { "phase_id": "70000000-0000-4000-8000-000000000011", "nome": "Aceite do gerente", "posicao": 0, "situacao": "em_triagem", "acao": "triagem" },
+          { "phase_id": "70000000-0000-4000-8000-000000000012", "nome": "Enviar Proposta para o Cliente", "posicao": 1, "situacao": "em_orcamento", "acao": "avanco" }
+        ],
+        "campos": [
+          { "field_id": "70000000-0000-4000-8000-000000000034", "nome": "Detalhe da \"OS\"", "tipo": "radio", "obrigatorio": true, "onde": "formulario_inicial", "opcoes": ["Sim", "Não"], "conexao": null, "significados": [], "obsoleto": false, "fora_da_regra": null },
+          { "field_id": "70000000-0000-4000-8000-000000000036", "nome": "Tipo de solicitação", "tipo": "dropdown", "obrigatorio": false, "onde": "formulario_inicial", "opcoes": ["Proposta", "Revisão"], "conexao": null, "significados": [], "obsoleto": false, "fora_da_regra": null },
+          { "field_id": "70000000-0000-4000-8000-000000000037", "nome": "Código antigo", "tipo": "text", "obrigatorio": false, "onde": "formulario_inicial", "opcoes": [], "conexao": null, "significados": [], "obsoleto": true, "fora_da_regra": null }
+        ],
+        "criterio": {
+          "gatilho": { "tipo": "criacao" },
+          "quem_criou": ["formulario", "outra", "pessoa"],
+          "condicoes": [
+            { "campo": "70000000-0000-4000-8000-000000000034", "operador": "um_de", "valor": ["Sim"] },
+            { "campo": "70000000-0000-4000-8000-000000000036", "operador": "um_de", "valor": ["Proposta", "Interna"] },
+            { "campo": "70000000-0000-4000-8000-000000000037", "operador": "contem", "valor": "OS-" }
+          ]
+        },
+        "alertas": [
+          { "tipo": "criterio_invalido", "onde": "condicoes[1].valor[1]" },
+          { "tipo": "criterio_invalido", "onde": "condicoes[2]" }
+        ]
+      }
+    ]
+  },
+  "flow_criterio_testar": {
+    "pipe_id": "70000000-0000-4000-8000-000000000001",
+    "criterio": {
+      "gatilho": { "tipo": "criacao" },
+      "quem_criou": ["pessoa", "formulario", "outra"],
+      "condicoes": [
+        { "campo": "70000000-0000-4000-8000-000000000034", "operador": "um_de", "valor": ["Sim"] }
+      ]
+    }
+  },
+  "flow_criterio_testar_resposta": {
+    "entrariam": 1,
+    "nao_entrariam": 2,
+    "ja_demanda": 1,
+    "limitado": false,
+    "cards": [
+      { "card_id": "70000000-0000-4000-8000-000000000064", "numero": 5124, "titulo": "Revisão do orçamento da subestação", "criado_em": "2026-11-12T13:00:00+00:00", "gatilho_em": "2026-11-12T13:00:00+00:00", "quem_criou": "pessoa", "resultado": "entraria", "motivo": null, "filho_de_demanda": null, "link": "https://flow.vydhub.com/pipeline/70000000-0000-4000-8000-000000000001?card=70000000-0000-4000-8000-000000000064" },
+      { "card_id": "70000000-0000-4000-8000-000000000063", "numero": 5123, "titulo": "Laudo de vibração da bomba 2", "criado_em": "2026-11-11T09:15:00+00:00", "gatilho_em": "2026-11-11T09:15:00+00:00", "quem_criou": "formulario", "resultado": "nao_entraria", "motivo": "Detalhe da \"OS\" não é um de: Sim", "filho_de_demanda": { "id_captura": "22222222-2222-4222-8222-222222222222", "link": "https://flow.vydhub.com/pipeline/70000000-0000-4000-8000-000000000001?card=70000000-0000-4000-8000-000000000061" }, "link": "https://flow.vydhub.com/pipeline/70000000-0000-4000-8000-000000000001?card=70000000-0000-4000-8000-000000000063" },
+      { "card_id": "70000000-0000-4000-8000-000000000062", "numero": 5122, "titulo": "Ajuste de escopo da inspeção", "criado_em": "2026-11-06T10:00:00+00:00", "gatilho_em": "2026-11-06T10:00:00+00:00", "quem_criou": "automacao", "resultado": "nao_entraria", "motivo": "Criado por automação", "filho_de_demanda": null, "link": "https://flow.vydhub.com/pipeline/70000000-0000-4000-8000-000000000001?card=70000000-0000-4000-8000-000000000062" },
+      { "card_id": "70000000-0000-4000-8000-000000000061", "numero": 5121, "titulo": "Proposta de manutenção da ponte rolante", "criado_em": "2026-10-21T08:00:00+00:00", "gatilho_em": "2026-10-21T08:00:00+00:00", "quem_criou": "radar", "resultado": "ja_demanda", "motivo": null, "filho_de_demanda": null, "link": "https://flow.vydhub.com/pipeline/70000000-0000-4000-8000-000000000001?card=70000000-0000-4000-8000-000000000061" }
+    ]
+  },
+  "flow_criterio_invalido": {
+    "codigo": "CRITERIO_INVALIDO",
+    "mensagem": "O critério tem problemas.",
+    "problemas": [
+      { "onde": "quem_criou", "motivo": "Marque pelo menos uma origem do card" },
+      { "onde": "condicoes[0]", "motivo": "\"Entre\" com o início depois do fim" }
+    ]
+  },
+  "flow_criterio_publicar": {
+    "pipe_id": "70000000-0000-4000-8000-000000000001",
+    "versao_base": 3,
+    "criterio": {
+      "gatilho": { "tipo": "criacao" },
+      "quem_criou": ["pessoa", "formulario", "outra"],
+      "condicoes": [
+        { "campo": "70000000-0000-4000-8000-000000000034", "operador": "um_de", "valor": ["Sim"] }
+      ]
+    },
+    "autor_email": "configurador@exemplo.com"
+  },
+  "flow_criterio_publicar_resposta": { "versao": 4 },
+  "flow_fora_filtros": { "pipe_id": "70000000-0000-4000-8000-000000000001", "de": "2026-10-15T03:00:00.000Z", "ate": "2026-11-14T23:59:59.999Z", "pagina": 1 },
+  "flow_fora": {
+    "pipes": [
+      { "pipe_id": "70000000-0000-4000-8000-000000000003", "nome": "Proposta Comercial" },
+      { "pipe_id": "70000000-0000-4000-8000-000000000001", "nome": "Solicitação de Propostas Técnicas" }
+    ],
+    "itens": [
+      { "card_id": "70000000-0000-4000-8000-000000000063", "pipe_id": "70000000-0000-4000-8000-000000000001", "numero": 5123, "titulo": "Laudo de vibração da bomba 2", "criado_em": "2026-11-11T09:15:00+00:00", "gatilho_em": "2026-11-11T09:15:00+00:00", "avaliado_em": "2026-11-11T09:17:04+00:00", "quem_criou": "formulario", "motivo": "Detalhe da \"OS\" não é um de: Sim", "versao": 4, "filho_de_demanda": { "id_captura": null, "link": "https://flow.vydhub.com/pipeline/70000000-0000-4000-8000-000000000001?card=70000000-0000-4000-8000-000000000061" }, "link": "https://flow.vydhub.com/pipeline/70000000-0000-4000-8000-000000000001?card=70000000-0000-4000-8000-000000000063" },
+      { "card_id": "70000000-0000-4000-8000-000000000065", "pipe_id": "70000000-0000-4000-8000-000000000003", "numero": 3310, "titulo": "Orçamento de pintura do galpão", "criado_em": "2026-11-09T15:00:00+00:00", "gatilho_em": "2026-11-14T13:00:00+00:00", "avaliado_em": "2026-11-14T13:02:10+00:00", "quem_criou": "desconhecida", "motivo": "Criado antes de o Flow registrar quem cria o card", "versao": 3, "filho_de_demanda": null, "link": "https://flow.vydhub.com/pipeline/70000000-0000-4000-8000-000000000003?card=70000000-0000-4000-8000-000000000065" }
+    ],
+    "pagina": 1,
+    "tem_mais": false
+  },
+  "flow_fora_periodo_invalido": { "codigo": "PERIODO_INVALIDO", "mensagem": "Informe o período com o início antes do fim." },
+  "flow_fora_trazer": { "card_id": "70000000-0000-4000-8000-000000000063", "autor_email": "operador@exemplo.com" },
+  "flow_fora_trazer_resposta": { "resultado": "trazido", "id_captura": null, "motivo_de_fora": "Detalhe da \"OS\" não é um de: Sim" },
+  "flow_fora_trazer_ja_demanda": { "resultado": "ja_demanda", "id_captura": "22222222-2222-4222-8222-222222222222", "motivo_de_fora": "Detalhe da \"OS\" não é um de: Sim" },
+  "flow_fora_trazer_recusa": {
+    "codigo": "CARD_NAO_PODE_SER_TRAZIDO",
+    "mensagem": "Este card não pode ser trazido.",
+    "problemas": [{ "onde": "card", "motivo": "ANTES_DA_ORIGEM" }]
   }
 }
