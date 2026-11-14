@@ -256,7 +256,7 @@
         "papel": "destino",
         "cenario": "chamado_lta",
         "origem_ligada": true,
-        "versao": null,
+        "versao": { "numero": 2, "autor_email": "configurador@exemplo.com", "em": "2026-11-13T15:00:00+00:00" },
         "fases": [
           { "phase_id": "70000000-0000-4000-8000-000000000011", "nome": "Aceite do gerente", "posicao": 0, "situacao": "em_triagem", "acao": "triagem" },
           { "phase_id": "70000000-0000-4000-8000-000000000012", "nome": "Enviar Proposta para o Cliente", "posicao": 1, "situacao": "em_orcamento", "acao": "avanco" },
@@ -272,6 +272,87 @@
         ],
         "criterio": null,
         "alertas": []
+      }
+    ]
+  }
+,
+  "flow_mapas": {
+    "pipe_id": "70000000-0000-4000-8000-000000000001",
+    "versao_base": 2,
+    "fases": [
+      { "phase_id": "70000000-0000-4000-8000-000000000011", "situacao": "em_triagem" },
+      { "phase_id": "70000000-0000-4000-8000-000000000012", "situacao": "orcamento_enviado" },
+      { "phase_id": "70000000-0000-4000-8000-000000000013", "situacao": "cancelada" },
+      { "phase_id": "70000000-0000-4000-8000-000000000014", "situacao": null }
+    ],
+    "campos": [
+      { "significado": "objeto", "field_id": "70000000-0000-4000-8000-000000000031" },
+      { "significado": "valor_estimado", "field_id": "70000000-0000-4000-8000-000000000032" },
+      { "significado": "valor_aprovado", "field_id": "70000000-0000-4000-8000-000000000032" },
+      { "significado": "contrato_flow_record_id", "field_id": "70000000-0000-4000-8000-000000000033" }
+    ],
+    "autor_email": "configurador@exemplo.com"
+  },
+  "flow_mapas_resposta": {
+    "versao": 3
+  },
+  "flow_mapas_versao_desatualizada": {
+    "codigo": "VERSAO_DESATUALIZADA",
+    "mensagem": "Outra versão foi publicada depois da versão editada.",
+    "versao_atual": 3
+  },
+  "flow_mapas_invalido": {
+    "codigo": "MAPA_INVALIDO",
+    "mensagem": "Os mapas têm problemas.",
+    "problemas": [
+      { "onde": "fases[0]", "motivo": "As ações de triagem dependem desta fase" },
+      { "onde": "campos[3]", "motivo": "Contrato só aceita campo de conexão com a tabela de contratos" }
+    ]
+  },
+  "flow_versoes": {
+    "itens": [
+      {
+        "numero": 2,
+        "autor_email": "configurador@exemplo.com",
+        "em": "2026-11-13T15:00:00+00:00",
+        "mapas": {
+          "fases": [
+            { "phase_id": "70000000-0000-4000-8000-000000000011", "situacao": "em_triagem" },
+            { "phase_id": "70000000-0000-4000-8000-000000000012", "situacao": "em_orcamento" },
+            { "phase_id": "70000000-0000-4000-8000-000000000013", "situacao": "cancelada" }
+          ],
+          "campos": [
+            { "significado": "cliente_nome", "field_id": "70000000-0000-4000-8000-000000000035" },
+            { "significado": "contrato_flow_record_id", "field_id": "70000000-0000-4000-8000-000000000033" },
+            { "significado": "objeto", "field_id": "70000000-0000-4000-8000-000000000031" },
+            { "significado": "valor_aprovado", "field_id": "70000000-0000-4000-8000-000000000032" },
+            { "significado": "valor_estimado", "field_id": "70000000-0000-4000-8000-000000000032" }
+          ]
+        },
+        "criterio": null,
+        "origem": { "ligada": true, "cenario": "chamado_lta" }
+      },
+      {
+        "numero": 1,
+        "autor_email": "migração",
+        "em": "2026-11-13T12:00:00+00:00",
+        "mapas": {
+          "fases": [
+            { "phase_id": "70000000-0000-4000-8000-000000000011", "situacao": "em_triagem" },
+            { "phase_id": "70000000-0000-4000-8000-000000000012", "situacao": "em_orcamento" },
+            { "phase_id": "70000000-0000-4000-8000-000000000013", "situacao": "cancelada" },
+            { "phase_id": "70000000-0000-4000-8000-000000000014", "situacao": "em_orcamento" }
+          ],
+          "campos": [
+            { "significado": "cliente_nome", "field_id": "70000000-0000-4000-8000-000000000035" },
+            { "significado": "contrato_flow_record_id", "field_id": "70000000-0000-4000-8000-000000000033" },
+            { "significado": "objeto", "field_id": "70000000-0000-4000-8000-000000000031" },
+            { "significado": "valor_aprovado", "field_id": "70000000-0000-4000-8000-000000000032" },
+            { "significado": "valor_estimado", "field_id": "70000000-0000-4000-8000-000000000032" }
+          ]
+        },
+        "criterio": null,
+        "origem": { "ligada": true, "cenario": "chamado_lta" }
       }
     ]
   }
