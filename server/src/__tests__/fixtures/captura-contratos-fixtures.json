@@ -463,5 +463,61 @@
     "codigo": "CARD_NAO_PODE_SER_TRAZIDO",
     "mensagem": "Este card não pode ser trazido.",
     "problemas": [{ "onde": "card", "motivo": "ANTES_DA_ORIGEM" }]
+  },
+  "evento_card_da_tela_com_pipe": {
+    "tipo": "card_da_tela",
+    "evento_id": "cccccccc-cccc-4ccc-8ccc-ccccccccccc4",
+    "flow_card_id": "70000000-0000-4000-8000-000000000081",
+    "pipe": "contrato_novo",
+    "numero": 512,
+    "titulo": "Orçamento de reforma da cobertura",
+    "criado_em": "2026-11-20T14:00:00Z",
+    "cliente_texto": "Cliente de exemplo",
+    "contrato_flow_record_id": null,
+    "responsavel_email": "orcamentos@exemplo.com",
+    "autor_email": "orcamentos@exemplo.com",
+    "pipe_nome": "Pedidos de orçamento"
+  },
+  "flow_catalogo_origem": {
+    "pipes": [
+      {
+        "pipe_id": "70000000-0000-4000-8000-000000000004",
+        "nome": "Pedidos de orçamento",
+        "papel": "origem",
+        "cenario": "contrato_novo",
+        "origem_ligada": true,
+        "versao": { "numero": 3, "autor_email": "administrador@exemplo.com", "em": "2026-11-15T10:00:00+00:00" },
+        "fases": [
+          { "phase_id": "70000000-0000-4000-8000-000000000071", "nome": "Pedido", "posicao": 0, "situacao": "recebida", "acao": null },
+          { "phase_id": "70000000-0000-4000-8000-000000000072", "nome": "Enviada", "posicao": 1, "situacao": "orcamento_enviado", "acao": null },
+          { "phase_id": "70000000-0000-4000-8000-000000000073", "nome": "Fechada", "posicao": 2, "situacao": "ganha", "acao": null }
+        ],
+        "campos": [
+          { "field_id": "70000000-0000-4000-8000-000000000074", "nome": "Escopo", "tipo": "text", "obrigatorio": false, "onde": "formulario_inicial", "opcoes": [], "conexao": null, "significados": [], "obsoleto": false, "fora_da_regra": null }
+        ],
+        "criterio": { "gatilho": { "tipo": "criacao" }, "quem_criou": ["formulario", "outra", "pessoa"], "condicoes": [] },
+        "alertas": []
+      }
+    ]
+  },
+  "flow_origem_ligar": {
+    "pipe_id": "70000000-0000-4000-8000-000000000004",
+    "ligar": true,
+    "cenario": "contrato_novo",
+    "versao_base": 2,
+    "criterio": { "gatilho": { "tipo": "criacao" }, "quem_criou": ["formulario", "outra", "pessoa"], "condicoes": [] },
+    "autor_email": "administrador@exemplo.com"
+  },
+  "flow_origem_desligar": { "pipe_id": "70000000-0000-4000-8000-000000000004", "ligar": false, "versao_base": 3, "autor_email": "administrador@exemplo.com" },
+  "flow_origem_resposta": { "versao": 3 },
+  "flow_origem_sem_situacao_final": {
+    "codigo": "ORIGEM_SEM_SITUACAO_FINAL",
+    "mensagem": "Dê a pelo menos uma fase a situação de orçamento enviado ou uma situação final.",
+    "problemas": [{ "onde": "fases", "motivo": "Dê a pelo menos uma fase a situação de orçamento enviado ou uma situação final." }]
+  },
+  "flow_origem_cenario_invalido": {
+    "codigo": "CENARIO_INVALIDO",
+    "mensagem": "O cenário não vale para este pipe.",
+    "problemas": [{ "onde": "cenario", "motivo": "O cenário deste pipe é Contrato novo e não muda" }]
   }
 }
